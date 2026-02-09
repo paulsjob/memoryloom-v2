@@ -1,0 +1,8 @@
+{
+  "name": "MemoryLoom-v2",
+  "description": "An AI-powered tribute video platform that transforms group memories into meaningful cinematic gifts.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
