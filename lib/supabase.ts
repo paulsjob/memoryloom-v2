@@ -1,19 +1,17 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Use optional chaining so the app doesn't crash if these are undefined
+const supabaseUrl = import.meta.env?.VITE_SUPABASE_URL || '';
+const supabaseAnonKey = import.meta.env?.VITE_SUPABASE_ANON_KEY || '';
 
-// Detailed Debugging
-console.log('--- Supabase Connection Diagnostic ---');
-console.log('URL provided:', !!supabaseUrl);
-console.log('Key prefix correct:', supabaseAnonKey?.startsWith('sb_') || supabaseAnonKey?.startsWith('eyJ'));
-console.log('Key length:', supabaseAnonKey?.length);
+// Log the status to your F12 console (SAFE - doesn't show the full key)
+console.log('🔌 Supabase Handshake:', {
+  urlDetected: !!supabaseUrl,
+  keyDetected: !!supabaseAnonKey,
+  keyValidFormat: supabaseAnonKey.startsWith('sb_')
+});
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  // We log but don't "throw" so the rest of the app doesn't crash
-  console.error('CRITICAL: Supabase keys are missing or malformed!');
-}
-
+// Initialize ONLY if keys exist, otherwise return null
 export const supabase = (supabaseUrl && supabaseAnonKey) 
   ? createClient(supabaseUrl, supabaseAnonKey) 
   : null;
