@@ -1,15 +1,19 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Use optional chaining and fallbacks to prevent the "Uncaught Error" crash
-const supabaseUrl = import.meta.env?.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env?.VITE_SUPABASE_ANON_KEY || '';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-// If keys are missing, we log a warning but DON'T kill the app
+// Detailed Debugging
+console.log('--- Supabase Connection Diagnostic ---');
+console.log('URL provided:', !!supabaseUrl);
+console.log('Key prefix correct:', supabaseAnonKey?.startsWith('sb_') || supabaseAnonKey?.startsWith('eyJ'));
+console.log('Key length:', supabaseAnonKey?.length);
+
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('⚠️ Supabase keys are missing from the build environment.');
+  // We log but don't "throw" so the rest of the app doesn't crash
+  console.error('CRITICAL: Supabase keys are missing or malformed!');
 }
 
-// Only initialize if we have both values
 export const supabase = (supabaseUrl && supabaseAnonKey) 
   ? createClient(supabaseUrl, supabaseAnonKey) 
   : null;
