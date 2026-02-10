@@ -20,7 +20,7 @@ export interface StoryboardTheme {
   order: number;
   emotionalBeat: string;
   isClimax?: boolean;
-  videoUrl?: string; // Added to support direct playback
+  videoUrl?: string;
 }
 
 export interface Memory {
@@ -33,6 +33,17 @@ export interface Memory {
   transcript?: string;
   emotionalBeat?: 'The Punchline' | 'The Tearjerker' | 'The Legacy Lesson' | 'The Inside Joke' | 'The Final Wish';
   duration?: number;
+  createdAt: string;
+}
+
+export interface CommunityAsset {
+  id: string;
+  contributorName: string;
+  type: 'video' | 'photo' | 'audio';
+  url: string;
+  title: string;
+  description: string;
+  editorNotes?: string;
   createdAt: string;
 }
 
@@ -55,6 +66,7 @@ export interface Project {
   organizerEmail: string;
   status: ProjectStatus;
   contributors: Contributor[];
+  communityAssets: CommunityAsset[];
   isDraft: boolean;
   theme: 'cinematic' | 'playful' | 'minimal' | 'documentary';
   musicId?: string;

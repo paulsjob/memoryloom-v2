@@ -16,6 +16,7 @@ export function useProject(initialProjects: Project[]) {
       organizerEmail: 'user@example.com',
       status: 'COLLECTING',
       contributors: projectData.contributors || [],
+      communityAssets: [],
       isDraft: true,
       theme: projectData.theme || 'cinematic',
     };
