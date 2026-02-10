@@ -1,12 +1,12 @@
+
 import { createClient } from "@supabase/supabase-js";
 
-// Fallback to empty strings so createClient does not crash the entire site
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+// Using process.env instead of import.meta.env to avoid 'undefined' property access errors
+const supabaseUrl = process.env.VITE_SUPABASE_URL || "";
+const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || "";
 
-// If they are missing, we log a warning but do not throw
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn("⚠️ Supabase keys are missing from the build. Check Vercel settings.");
+  console.warn("⚠️ Supabase keys are missing from process.env.");
 }
 
 // Only initialize the client if we have the required strings

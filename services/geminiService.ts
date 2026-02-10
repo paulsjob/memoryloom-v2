@@ -1,3 +1,4 @@
+
 import { Type } from "@google/genai";
 import { ai } from "../lib/ai";
 
@@ -38,11 +39,7 @@ export async function analyzeSubmissions(
   milestone: string,
   submissions: Submission[]
 ): Promise<AnalysisResult | null> {
-  if (!ai) {
-    console.warn("Gemini client not initialized. Missing VITE_GEMINI_API_KEY.");
-    return null;
-  }
-
+  // Use gemini-3-pro-preview for complex narrative analysis and emotional arc construction
   const prompt = `Act as a master documentary film editor. Analyze these short written submissions for "${projectName}" (a ${milestone} celebration).
 
 Return JSON only.
@@ -66,7 +63,7 @@ ${submissions
 
   try {
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3-pro-preview",
       contents: prompt,
       config: {
         responseMimeType: "application/json",
@@ -113,16 +110,6 @@ export async function generateContributorPrompts(
   milestone: string,
   recipient: string
 ): Promise<string[]> {
-  if (!ai) {
-    console.warn("Gemini client not initialized. Missing VITE_GEMINI_API_KEY.");
-    return [
-      "What is a small, quiet way they've made your life better?",
-      "If you had to pick one trademark habit of theirs, what would it be?",
-      "Tell a story about a time they showed up for you when it mattered.",
-      "What is one piece of advice they gave you that you actually followed?",
-    ];
-  }
-
   const prompt = `You are an emotionally intelligent host. Suggest 10 short, specific prompt questions that will help people record a video message for ${recipient}'s ${milestone}.
 Avoid clichés like "Happy Birthday."
 Focus on:
@@ -134,6 +121,7 @@ Focus on:
 Return JSON only as an array of strings.`;
 
   try {
+    // Basic text task, gemini-3-flash-preview is appropriate
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
@@ -164,14 +152,6 @@ export async function generateNudgeMessage(
   deadline: string,
   tone: string
 ): Promise<NudgeResult> {
-  if (!ai) {
-    console.warn("Gemini client not initialized. Missing VITE_GEMINI_API_KEY.");
-    return {
-      funny: `Quick nudge.  We are collecting messages for ${recipientName}'s ${milestone} and you're on the highlight reel list.  Deadline: ${deadline}.  Can you sneak yours in?`,
-      heartfelt: `Hi.  Just a gentle reminder that we are almost ready to wrap the messages for ${recipientName}'s ${milestone}.  Your voice matters here.  If you can, please submit by ${deadline}.`,
-    };
-  }
-
   const prompt = `Write a short, warm, but effective nudge message to someone who has not submitted their video for ${recipientName}'s ${milestone} yet.
 The deadline is ${deadline}.
 The project tone is ${tone}.
@@ -211,15 +191,6 @@ export async function generateInviteCopy(
   recipientName: string,
   milestone: string
 ): Promise<InviteCopyResult> {
-  if (!ai) {
-    console.warn("Gemini client not initialized. Missing VITE_GEMINI_API_KEY.");
-    return {
-      whatsapp: `I’m putting together a group video for ${recipientName}'s ${milestone}.  Want to add a short message?`,
-      email: `Hi,\n\nI’m organizing a group video to celebrate ${recipientName}'s ${milestone}.  If you’re up for it, please record a short message and share it with me.\n\nThank you.`,
-      slack: `Putting together a celebration video for ${recipientName}'s ${milestone}.  If you can share a short message, that would be awesome.`,
-    };
-  }
-
   const prompt = `Write invitation copy asking someone to contribute a short video message for ${recipientName}'s ${milestone}.
 Provide three versions:
 1) WhatsApp (short)

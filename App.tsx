@@ -77,7 +77,11 @@ const App: React.FC = () => {
           />
         );
       case 'contributor-portal':
-        if (!activeProject) return setView('landing');
+        // Fix: Avoid returning void from setView in render function
+        if (!activeProject) {
+          setTimeout(() => setView('landing'), 0);
+          return null;
+        }
         return (
           <ContributorPortal 
             project={activeProject} 
@@ -88,7 +92,11 @@ const App: React.FC = () => {
           />
         );
       case 'preview-video':
-        if (!activeProject) return setView('organizer-dashboard');
+        // Fix: Avoid returning void from setView in render function
+        if (!activeProject) {
+          setTimeout(() => setView('organizer-dashboard'), 0);
+          return null;
+        }
         return <VideoPreview project={activeProject} onBack={() => setView('organizer-dashboard')} />;
       default:
         return <LandingPage onStart={() => setView('create-project')} />;
