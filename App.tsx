@@ -156,6 +156,7 @@ const App: React.FC = () => {
           onConnectAi={handleSelectKey}
           onBack={() => setView('organizer-dashboard')} 
           onError={(e) => addToast(e.message, "error")} 
+          addToast={addToast}
         />
       )}
       <ToastContainer toasts={toasts} onRemove={removeToast} />

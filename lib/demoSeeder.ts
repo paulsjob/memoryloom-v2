@@ -2,6 +2,34 @@
 import { mediaStore } from './mediaStore';
 
 /**
+ * Generates a dummy audio blob using OscillatorNode.
+ */
+async function createMockAudioBlob(): Promise<Blob> {
+  const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+  const oscillator = audioCtx.createOscillator();
+  const destination = audioCtx.createMediaStreamDestination();
+  const recorder = new MediaRecorder(destination.stream);
+  const chunks: Blob[] = [];
+
+  oscillator.type = 'sine';
+  oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
+  oscillator.connect(destination);
+
+  return new Promise((resolve) => {
+    recorder.ondataavailable = (e) => chunks.push(e.data);
+    recorder.onstop = () => resolve(new Blob(chunks, { type: 'audio/wav' }));
+    
+    recorder.start();
+    oscillator.start();
+    
+    setTimeout(() => {
+      oscillator.stop();
+      recorder.stop();
+    }, 2000); // 2 second beep
+  });
+}
+
+/**
  * Generates a dummy video blob using Canvas and MediaRecorder.
  * This ensures the app is "batteries included" for testing.
  */
@@ -24,14 +52,12 @@ async function createMockVideoBlob(text: string, color: string): Promise<Blob> {
     
     let frame = 0;
     const interval = setInterval(() => {
-      // Draw background with subtle animation
       const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
       gradient.addColorStop(0, color);
       gradient.addColorStop(1, '#000000');
       ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       
-      // Draw text
       ctx.fillStyle = 'white';
       ctx.font = 'italic bold 60px serif';
       ctx.textAlign = 'center';
@@ -39,14 +65,13 @@ async function createMockVideoBlob(text: string, color: string): Promise<Blob> {
       ctx.shadowColor = 'black';
       ctx.fillText(text, canvas.width / 2, canvas.height / 2);
       
-      // Draw subtext
       ctx.shadowBlur = 0;
       ctx.font = 'bold 20px sans-serif';
       ctx.fillStyle = 'rgba(255,255,255,0.4)';
       ctx.fillText(`[ NARRATIVE THREAD ACTIVE • ${frame} ]`, canvas.width / 2, canvas.height / 2 + 80);
       
       frame++;
-      if (frame > 60) { // 2 second video
+      if (frame > 60) {
         clearInterval(interval);
         recorder.stop();
       }
@@ -72,5 +97,13 @@ export async function seedMockData() {
       const blob = await createMockVideoBlob(item.text, item.color);
       await mediaStore.saveVideo(item.key, blob);
     }
+  }
+
+  // Seed a demo audio track
+  const audioKey = '/audio/demo_track.wav';
+  const audioExists = await mediaStore.getVideoUrl(audioKey);
+  if (!audioExists) {
+    const audioBlob = await createMockAudioBlob();
+    await mediaStore.saveVideo(audioKey, audioBlob);
   }
 }

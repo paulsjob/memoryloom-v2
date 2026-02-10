@@ -21,6 +21,8 @@ export interface StoryboardTheme {
   emotionalBeat: string;
   isClimax?: boolean;
   videoUrl?: string;
+  assetId?: string;
+  assetType?: 'video' | 'photo' | 'audio';
   contributorName?: string;
 }
 
@@ -86,6 +88,7 @@ export interface Project {
   isDraft: boolean;
   theme: 'cinematic' | 'playful' | 'minimal' | 'documentary';
   musicId?: string;
+  musicUrl?: string;
   storyboard?: StoryboardTheme[];
   storyboardHistory?: SavedSequence[];
   aiTone?: string;
