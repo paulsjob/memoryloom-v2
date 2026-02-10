@@ -45,6 +45,7 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteForm, setInviteForm] = useState({ name: '', relationship: '', email: '' });
   const [viewingVideoUrl, setViewingVideoUrl] = useState<string | null>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
 
   // Video Preview States (Dashboard Main Player)
   const [isPlaying, setIsPlaying] = useState(false);
@@ -92,7 +93,10 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
   useEffect(() => {
     if (videoRef.current) {
       if (isPlaying) {
-        videoRef.current.play().catch(() => setIsPlaying(false));
+        videoRef.current.play().catch(() => {
+          setIsPlaying(false);
+          setVideoError("Video file not found. Check your /public/videos folder.");
+        });
       } else {
         videoRef.current.pause();
       }
@@ -157,6 +161,7 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
     if (c.status !== 'submitted') return;
     const video = c.memories.find(m => m.type === 'video');
     if (video) {
+      setVideoError(null);
       setViewingVideoUrl(video.url);
     } else {
       addToast("No video file found for this contributor.", "error");
@@ -225,7 +230,7 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
       {viewingVideoUrl && (
         <div 
           className="fixed inset-0 bg-stone-950/90 backdrop-blur-xl z-[200] flex items-center justify-center p-4 md:p-12 animate-in fade-in zoom-in-95 duration-300"
-          onClick={() => setViewingVideoUrl(null)}
+          onClick={() => { setViewingVideoUrl(null); setVideoError(null); }}
         >
           <div className="absolute top-8 right-8 z-[210]">
             <button className="text-white/60 hover:text-white transition-colors">
@@ -233,15 +238,30 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
             </button>
           </div>
           <div 
-            className="w-full max-w-5xl aspect-video bg-black rounded-[2rem] md:rounded-[3rem] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.5)] border border-white/10"
+            className="w-full max-w-5xl aspect-video bg-black rounded-[2rem] md:rounded-[3rem] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.5)] border border-white/10 relative"
             onClick={e => e.stopPropagation()}
           >
-            <video 
-              src={viewingVideoUrl} 
-              autoPlay 
-              controls 
-              className="w-full h-full"
-            />
+            {videoError ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center p-12 text-center text-white">
+                <div className="w-20 h-20 bg-red-500/20 text-red-500 rounded-full flex items-center justify-center mb-6">
+                  <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                </div>
+                <h3 className="text-2xl font-bold serif italic mb-4">File Missing</h3>
+                <p className="text-stone-400 mb-8 max-w-md">
+                  It looks like <strong>{viewingVideoUrl}</strong> was deleted during the repository sync.
+                  Please re-upload your videos to the <code>/public/videos</code> folder on GitHub.
+                </p>
+                <Button onClick={() => { setViewingVideoUrl(null); setVideoError(null); }} variant="ghost" className="border-white/20 text-white">Close</Button>
+              </div>
+            ) : (
+              <video 
+                src={viewingVideoUrl} 
+                autoPlay 
+                controls 
+                className="w-full h-full"
+                onError={() => setVideoError("File not found")}
+              />
+            )}
           </div>
         </div>
       )}
@@ -318,18 +338,24 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
 
            {/* Primary Video Player */}
            <div className="relative w-full aspect-video bg-stone-950 rounded-[3rem] md:rounded-[4rem] overflow-hidden shadow-[0_50px_100px_-20px_rgba(0,0,0,0.3)] border-[6px] border-white ring-1 ring-stone-100 group">
-              {currentClip?.videoUrl ? (
+              {currentClip?.videoUrl && !videoError ? (
                 <video 
                   ref={videoRef}
                   src={currentClip.videoUrl} 
                   onTimeUpdate={onTimeUpdate}
                   className="absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 opacity-70 group-hover:opacity-90"
                   playsInline
+                  onError={() => setVideoError("File missing")}
                 />
               ) : null}
 
               <div className="absolute inset-0 flex items-center justify-center text-center px-12 pointer-events-none">
-                 {storyboard.length > 0 ? (
+                 {videoError ? (
+                    <div className="animate-in fade-in">
+                       <p className="text-red-400 text-[10px] font-bold uppercase tracking-widest mb-4">⚠️ Asset Lost during sync</p>
+                       <h2 className="text-3xl text-white font-bold italic serif">Re-upload clips</h2>
+                    </div>
+                 ) : storyboard.length > 0 ? (
                     <div className="animate-in fade-in duration-1000">
                        <span className="text-amber-500 font-bold text-[10px] uppercase tracking-widest block mb-4 italic drop-shadow-lg opacity-80">
                           {isAiEnabled ? '✨ Narrative Engine Active' : 'Sequencing memories...'}
