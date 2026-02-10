@@ -34,36 +34,36 @@ export type InviteCopyResult = {
 };
 
 /**
- * Narrative Analysis - Act 1: The Core
- * Uses gemini-3-pro-preview for complex emotional reasoning.
+ * Narrative Analysis
+ * Fallback: Chronological heuristic editing.
  */
 export async function analyzeSubmissions(
   projectName: string,
   milestone: string,
   submissions: Submission[]
 ): Promise<AnalysisResult | null> {
-  // Use process.env.API_KEY directly as required.
+  const apiKey = process.env.API_KEY;
+  
+  // Standard Mode Fallback
+  if (!apiKey || apiKey === "undefined") {
+    console.log("MemoryLoom: Running in Standard Mode (Static Templates)");
+    return {
+      tone: "Heartfelt & Sincere",
+      musicGenre: "Acoustic Folk",
+      themes: [
+        { themeName: "The Opening Act", contributors: submissions.slice(0, 2).map(s => s.name), suggestedTransition: "Fade to black", emotionalBeat: "Warm Welcome", isClimax: false },
+        { themeName: "Favorite Memories", contributors: submissions.slice(2).map(s => s.name), suggestedTransition: "Cross dissolve", emotionalBeat: "The Heart of the Story", isClimax: true },
+      ],
+      closingSentiment: "Wishing you a wonderful celebration!"
+    };
+  }
+
+  // Create a fresh instance for the call to ensure current API key is used
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `Act as a master documentary film editor. Analyze these short written submissions for "${projectName}" (a ${milestone} celebration).
-
-Return JSON only.
-
-Goals:
-1) Identify the core emotional tone.
-2) Group the submissions into a set of 3 to 7 themes that can form a 3-act narrative arc.
-3) For each theme:
-   - Name the theme
-   - List the contributors whose submission fits the theme (use their exact name field)
-   - Suggest a simple transition idea to move to the next theme
-   - Assign an emotional beat label (example: "The Inside Joke", "The Tearjerker", "The Legacy", "The Gratitude Wave", "The Glow-Up")
-   - Mark whether this theme is the climax (true for exactly one theme)
-4) Provide a closingSentiment.
-
+  const prompt = `Act as a documentary film editor. Analyze submissions for "${projectName}" (${milestone}).
+Return JSON with themes, emotional beats, and a closing sentiment.
 Submissions:
-${submissions
-  .map((s, i) => `${i + 1}. Name: ${s.name}\nMessage: ${s.message}`)
-  .join("\n\n")}
-`;
+${submissions.map((s, i) => `${i + 1}. Name: ${s.name}\nMsg: ${s.message}`).join("\n\n")}`;
 
   try {
     const response = await ai.models.generateContent({
@@ -96,31 +96,25 @@ ${submissions
         },
       },
     });
-
-    // Extract text from response using the .text property
-    return JSON.parse(response.text) as AnalysisResult;
+    // Extract text from the property directly
+    const jsonStr = response.text;
+    return jsonStr ? (JSON.parse(jsonStr) as AnalysisResult) : null;
   } catch (error) {
-    console.error("Gemini Analysis Error:", error);
-    // Rethrow to allow component-level handling (e.g. for "Requested entity was not found")
-    throw error;
+    console.error("Narrative Analysis failed, using fallback.", error);
+    return null;
   }
 }
 
-/**
- * Live Director Reordering
- */
 export async function reorderStoryboard(
   currentThemes: any[],
   instruction: string
 ): Promise<any[] | null> {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey || apiKey === "undefined") return null;
+
+  // Create a fresh instance for the call to ensure current API key is used
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `You are a film editor. Here is the current storyboard for a tribute video:
-${JSON.stringify(currentThemes, null, 2)}
-
-The Director wants to make this change: "${instruction}"
-
-Reorder the themes or adjust their emotional beat labels to satisfy this request. 
-Return only the updated array of theme objects as JSON.`;
+  const prompt = `Reorder these video themes based on: "${instruction}"\n\n${JSON.stringify(currentThemes)}`;
 
   try {
     const response = await ai.models.generateContent({
@@ -145,67 +139,94 @@ Return only the updated array of theme objects as JSON.`;
         },
       },
     });
-
-    // Extract text from response using the .text property
-    return JSON.parse(response.text);
+    // Extract text from the property directly
+    const jsonStr = response.text;
+    return jsonStr ? JSON.parse(jsonStr) : null;
   } catch (error) {
-    console.error("Gemini Reorder Error:", error);
     throw error;
   }
 }
 
-export async function generateContributorPrompts(
-  milestone: string,
-  recipient: string
-): Promise<string[]> {
+export async function generateContributorPrompts(milestone: string, recipient: string): Promise<string[]> {
+  const apiKey = process.env.API_KEY;
+  const fallbacks = ["Tell a story about them", "What do they mean to you?", "A funny memory", "Your wish for them"];
+  if (!apiKey || apiKey === "undefined") return fallbacks;
+
+  // Create a fresh instance for the call to ensure current API key is used
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `You are an host. Suggest 10 prompt questions for ${recipient}'s ${milestone}. Return JSON array of strings.`;
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: prompt,
-      config: { responseMimeType: "application/json" },
+      contents: `Suggest 10 prompt questions for ${recipient}'s ${milestone}. Return a JSON array of strings.`,
+      config: { 
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: { type: Type.STRING }
+        }
+      },
     });
-    return JSON.parse(response.text);
-  } catch (e) {
-    return ["Tell a story about them", "What do they mean to you?", "A funny memory"];
-  }
+    // Extract text from the property directly
+    const jsonStr = response.text;
+    return jsonStr ? JSON.parse(jsonStr) : fallbacks;
+  } catch (e) { return fallbacks; }
 }
 
-export async function generateNudgeMessage(
-  recipientName: string,
-  milestone: string,
-  deadline: string,
-  tone: string
-): Promise<NudgeResult> {
+export async function generateNudgeMessage(recipientName: string, milestone: string, deadline: string, tone: string): Promise<NudgeResult> {
+  const apiKey = process.env.API_KEY;
+  const fallback = { funny: "Hey! The Loom is waiting for you!", heartfelt: `We'd love to have your voice in the video for ${recipientName}.` };
+  if (!apiKey || apiKey === "undefined") return fallback;
+
+  // Create a fresh instance for the call to ensure current API key is used
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `Nudge message for ${recipientName}'s ${milestone}. JSON with keys: funny, heartfelt.`;
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: prompt,
-      config: { responseMimeType: "application/json" },
+      contents: `Nudge message for ${recipientName}'s ${milestone}. Return a JSON object with keys: funny, heartfelt.`,
+      config: { 
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            funny: { type: Type.STRING },
+            heartfelt: { type: Type.STRING }
+          },
+          required: ["funny", "heartfelt"]
+        }
+      },
     });
-    return JSON.parse(response.text);
-  } catch (e) {
-    return { funny: "Hey! Don't forget!", heartfelt: "We really want you in the video." };
-  }
+    // Extract text from the property directly
+    const jsonStr = response.text;
+    return jsonStr ? JSON.parse(jsonStr) : fallback;
+  } catch (e) { return fallback; }
 }
 
-export async function generateInviteCopy(
-  recipientName: string,
-  milestone: string
-): Promise<InviteCopyResult> {
+export async function generateInviteCopy(recipientName: string, milestone: string): Promise<InviteCopyResult> {
+  const apiKey = process.env.API_KEY;
+  const fallback = { whatsapp: "Hey! Join the video tribute for " + recipientName, email: "Contribution request for video tribute.", slack: "Team project for " + recipientName };
+  if (!apiKey || apiKey === "undefined") return fallback;
+
+  // Create a fresh instance for the call to ensure current API key is used
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  const prompt = `Invite copy for ${recipientName}'s ${milestone}. JSON with keys: whatsapp, email, slack.`;
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: prompt,
-      config: { responseMimeType: "application/json" },
+      contents: `Invite copy for ${recipientName}'s ${milestone}. Return a JSON object with keys: whatsapp, email, slack.`,
+      config: { 
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            whatsapp: { type: Type.STRING },
+            email: { type: Type.STRING },
+            slack: { type: Type.STRING }
+          },
+          required: ["whatsapp", "email", "slack"]
+        }
+      },
     });
-    return JSON.parse(response.text);
-  } catch (e) {
-    return { whatsapp: "Join the video!", email: "Invitation to contribute.", slack: "Team tribute project." };
-  }
+    // Extract text from the property directly
+    const jsonStr = response.text;
+    return jsonStr ? JSON.parse(jsonStr) : fallback;
+  } catch (e) { return fallback; }
 }
