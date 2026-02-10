@@ -21,6 +21,7 @@ export interface StoryboardTheme {
   emotionalBeat: string;
   isClimax?: boolean;
   videoUrl?: string;
+  contributorName?: string;
 }
 
 export interface Memory {

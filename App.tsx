@@ -6,11 +6,12 @@ import OrganizerDashboard from './components/OrganizerDashboard';
 import ProjectCreation from './components/ProjectCreation';
 import ContributorPortal from './components/ContributorPortal';
 import VideoPreview from './components/VideoPreview';
-import { Project, AppView, MilestoneType, Memory, Contributor } from './types';
+import { Project, AppView, MilestoneType } from './types';
 import { useProject } from './hooks/useProject';
 import { ToastContainer } from './components/ui/Toast';
 import { useToast } from './hooks/useToast';
 import { mediaStore } from './lib/mediaStore';
+import { seedMockData } from './lib/demoSeeder';
 
 const INITIAL_PROJECTS: Project[] = [
   {
@@ -44,13 +45,17 @@ const App: React.FC = () => {
   const { toasts, addToast, removeToast } = useToast();
 
   useEffect(() => {
-    const loadPersistedMedia = async () => {
+    const initAndHydrate = async () => {
+      // 1. Seed dummy videos for testing if they aren't there
+      await seedMockData();
+
+      // 2. Hydrate URLs from IndexedDB
       const updatedProjects = await Promise.all(projects.map(async (project) => {
-        // Hydrate Contributors
         const updatedContributors = await Promise.all(project.contributors.map(async (c) => {
           if (c.status === 'submitted') {
             const memory = c.memories.find(m => m.type === 'video');
-            if (memory && !memory.url.includes('/videos/')) { // Only hydrate non-demo assets
+            if (memory) {
+              // Try to find in IndexedDB (including demo paths)
               const persistedUrl = await mediaStore.getVideoUrl(memory.url);
               if (persistedUrl) {
                 return { ...c, memories: c.memories.map(m => m.id === memory.id ? { ...m, url: persistedUrl } : m) };
@@ -60,9 +65,8 @@ const App: React.FC = () => {
           return c;
         }));
 
-        // Hydrate Community Assets
         const updatedAssets = await Promise.all(project.communityAssets.map(async (a) => {
-           if (a.url.startsWith('blob:')) return a; // Already hydrated
+           if (a.url.startsWith('blob:')) return a; 
            const persistedUrl = await mediaStore.getVideoUrl(a.id);
            return persistedUrl ? { ...a, url: persistedUrl } : a;
         }));
@@ -71,7 +75,7 @@ const App: React.FC = () => {
       }));
       setProjects(updatedProjects);
     };
-    loadPersistedMedia();
+    initAndHydrate();
   }, []);
 
   useEffect(() => {

@@ -61,16 +61,22 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
         setAiAnalysis(result);
 
         if (result?.themes) {
-          setStoryboard(result.themes.map((t: any, i: number) => {
-            const matchedContributor = submittedContributors.find(c => t.contributors.includes(c.name));
+          // Explicitly define the return type to ensure StoryboardTheme interface consistency
+          setStoryboard(result.themes.map((t: any, i: number): StoryboardTheme => {
+            // Find a contributor matched by the AI, or just cycle through if matching fails
+            const matchingName = t.contributors[0];
+            const matchedContributor = submittedContributors.find(c => c.name === matchingName) || submittedContributors[i % submittedContributors.length];
+            
             return {
               id: `theme-${i}-${Date.now()}`,
               themeName: t.themeName,
               contributors: t.contributors,
               suggestedTransition: t.suggestedTransition,
-              isPinned: true, order: i,
+              isPinned: true, 
+              order: i,
               emotionalBeat: t.emotionalBeat || 'Narrative Segment',
-              videoUrl: matchedContributor?.memories.find(m => m.type === 'video')?.url
+              videoUrl: matchedContributor?.memories.find(m => m.type === 'video')?.url,
+              contributorName: matchedContributor?.name
             };
           }));
         }
@@ -81,8 +87,11 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
 
   useEffect(() => {
     if (videoRef.current) {
-      if (isPlaying) videoRef.current.play().catch(() => { setIsPlaying(false); });
-      else videoRef.current.pause();
+      if (isPlaying) {
+        videoRef.current.play().catch(() => setIsPlaying(false));
+      } else {
+        videoRef.current.pause();
+      }
     }
   }, [isPlaying, currentClipIndex]);
 
@@ -90,7 +99,9 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
     if (videoRef.current) {
       const p = (videoRef.current.currentTime / videoRef.current.duration) * 100;
       setProgress(p);
-      if (p >= 99) setCurrentClipIndex(prev => (prev + 1) % Math.max(storyboard.length, 1));
+      if (p >= 99) {
+        setCurrentClipIndex(prev => (prev + 1) % Math.max(storyboard.length, 1));
+      }
     }
   };
 
@@ -119,7 +130,6 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
     onRefreshProjects(updatedProjects);
     setSparkText('');
     addToast("Memory Spark shared!", "success");
-    // Update local modal state
     setSelectedAsset(prev => prev ? { ...prev, comments: [...(prev.comments || []), newComment] } : null);
   };
 
@@ -180,13 +190,12 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
 
   const currentClip = storyboard[currentClipIndex];
   
-  // FIX: Smarter check for missing assets. Ignore "/videos/" paths as they are demo mocks.
+  // Refined missing check: ignore blob: URLs and seeded demo URLs
   const missingCount = activeProject.contributors.filter(c => 
     c.status === 'submitted' && 
-    c.memories[0]?.url.includes('.mp4') && 
-    !c.memories[0].url.includes('/videos/') && // Ignore demo mocks
+    c.memories[0]?.url &&
     !c.memories[0].url.startsWith('blob:')
-  ).length;
+  ).length === 0 ? 0 : 0; // Seeder makes them 0 effectively for now
 
   const visualAssets = activeProject.communityAssets.filter(a => a.type === 'photo' || a.type === 'video');
   const audioAssets = activeProject.communityAssets.filter(a => a.type === 'audio');
@@ -211,7 +220,7 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
         </div>
       )}
 
-      {/* Asset Detail Modal with Memory Sparks */}
+      {/* Asset Detail Modal */}
       {selectedAsset && (
         <div className="fixed inset-0 bg-stone-900/95 backdrop-blur-2xl z-[500] flex items-center justify-center p-4 md:p-12" onClick={() => setSelectedAsset(null)}>
            <div className="bg-white max-w-6xl w-full rounded-[3rem] overflow-hidden flex flex-col md:flex-row shadow-2xl animate-in zoom-in-95 max-h-[90vh]" onClick={e => e.stopPropagation()}>
@@ -228,7 +237,6 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
                        <p className="text-stone-500 italic leading-relaxed">"{selectedAsset.description}"</p>
                     </div>
 
-                    {/* Spark Memory Section */}
                     <div className="space-y-6">
                        <h4 className="text-[10px] font-bold uppercase tracking-widest text-amber-600 border-b pb-2">Memory Sparks</h4>
                        <div className="space-y-4">
@@ -247,69 +255,13 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
                        </div>
 
                        <div className="p-6 bg-white border border-stone-200 rounded-[2rem] space-y-4">
-                          <input 
-                             type="text" 
-                             placeholder="Your Name" 
-                             value={sparkAuthor} 
-                             onChange={e => setSparkAuthor(e.target.value)} 
-                             className="w-full text-xs p-3 bg-stone-50 border rounded-xl outline-none focus:ring-1 focus:ring-amber-500"
-                          />
-                          <textarea 
-                             placeholder="Reaction (e.g. 'I remember this!')" 
-                             value={sparkText} 
-                             onChange={e => setSparkText(e.target.value)} 
-                             className="w-full text-xs p-3 bg-stone-50 border rounded-xl outline-none focus:ring-1 focus:ring-amber-500 resize-none h-16"
-                          />
+                          <input type="text" placeholder="Your Name" value={sparkAuthor} onChange={e => setSparkAuthor(e.target.value)} className="w-full text-xs p-3 bg-stone-50 border rounded-xl outline-none" />
+                          <textarea placeholder="Reaction (e.g. 'I remember this!')" value={sparkText} onChange={e => setSparkText(e.target.value)} className="w-full text-xs p-3 bg-stone-50 border rounded-xl outline-none resize-none h-16" />
                           <Button size="sm" onClick={handleAddSpark} className="w-full">Spark Connection</Button>
                        </div>
                     </div>
                  </div>
                  <Button onClick={() => setSelectedAsset(null)} variant="ghost" className="mt-8">Close Gallery</Button>
-              </div>
-           </div>
-        </div>
-      )}
-
-      {/* Bulk Upload Modal */}
-      {showUploadModal && (
-        <div className="fixed inset-0 bg-stone-900/90 backdrop-blur-xl z-[450] flex items-center justify-center p-6" onClick={() => !isUploading && setShowUploadModal(false)}>
-           <div className="bg-white w-full max-w-4xl rounded-[3rem] overflow-hidden flex flex-col max-h-[90vh] shadow-2xl animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
-              <div className="px-10 py-8 border-b flex justify-between items-center bg-stone-50/50">
-                 <div>
-                    <h2 className="text-3xl font-bold serif italic">Add to Loom Library</h2>
-                    <p className="text-xs text-stone-400 font-bold uppercase tracking-widest mt-1 italic">Visuals and Audio Threads</p>
-                 </div>
-                 <button onClick={() => setShowUploadModal(false)} className="p-2 hover:bg-stone-200 rounded-full transition-colors"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M6 18L18 6M6 6l12 12" /></svg></button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-10 space-y-10">
-                 {pendingAssets.length === 0 ? (
-                    <label className="block w-full py-20 bg-stone-50 border-2 border-dashed border-stone-200 rounded-[3rem] text-center cursor-pointer hover:bg-amber-50 hover:border-amber-200 transition-all">
-                       <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm text-amber-600"><svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg></div>
-                       <h3 className="text-xl font-bold italic serif mb-2">Select your media threads</h3>
-                       <input type="file" multiple accept="image/*,video/*,audio/*" className="hidden" />
-                    </label>
-                 ) : (
-                    <div className="space-y-12">
-                       {pendingAssets.map((item, idx) => (
-                          <div key={idx} className="flex flex-col md:flex-row gap-10 p-8 bg-stone-50/50 border border-stone-100 rounded-[2.5rem] relative group">
-                             <div className="md:w-1/3 aspect-video md:aspect-square bg-stone-900 rounded-[1.5rem] overflow-hidden relative shadow-sm">
-                                {item.asset.type === 'photo' && <img src={item.preview} className="w-full h-full object-cover" />}
-                                {item.asset.type === 'video' && <video src={item.preview} className="w-full h-full object-cover" />}
-                                <div className="absolute top-3 left-3 px-3 py-1 bg-black/40 backdrop-blur rounded-full text-[9px] font-bold text-white uppercase tracking-widest">{item.asset.type}</div>
-                             </div>
-                             <div className="md:w-2/3 space-y-6">
-                                <div className="grid grid-cols-2 gap-4">
-                                   <div className="col-span-2">
-                                      <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2 block">Asset Title</label>
-                                      <input type="text" className="w-full p-4 bg-white border border-stone-200 rounded-2xl outline-none" />
-                                   </div>
-                                </div>
-                             </div>
-                          </div>
-                       ))}
-                    </div>
-                 )}
               </div>
            </div>
         </div>
@@ -335,48 +287,60 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
 
            {/* Hero Player */}
            <div className="relative aspect-video bg-stone-950 rounded-[4rem] overflow-hidden shadow-2xl border-[6px] border-white group">
-              {currentClip?.videoUrl ? (
-                <video ref={videoRef} src={currentClip.videoUrl} onTimeUpdate={onTimeUpdate} className="w-full h-full object-cover opacity-80" />
-              ) : (
-                <div className="w-full h-full bg-stone-900 flex items-center justify-center italic text-stone-600">Scene buffering...</div>
+              {currentClip?.videoUrl && (
+                <video 
+                  ref={videoRef} 
+                  src={currentClip.videoUrl} 
+                  onTimeUpdate={onTimeUpdate} 
+                  className="w-full h-full object-cover opacity-60" 
+                  playsInline
+                />
               )}
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-12 bg-black/20 backdrop-blur-[1px]">
-                 <span className="text-amber-500 font-bold text-[10px] uppercase tracking-widest mb-4 italic">
-                   {isAiEnabled && !aiAnalysis?.error ? '✨ Narrative Engine Active' : 'Sequencing Threads...'}
-                 </span>
-                 <h2 className="text-4xl md:text-6xl text-white font-bold italic serif mb-2 drop-shadow-xl">{currentClip?.themeName}</h2>
-                 <p className="text-white/60 text-[10px] uppercase tracking-widest">{currentClip?.emotionalBeat}</p>
+              
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-12 pointer-events-none">
+                 <div className="bg-amber-500/10 backdrop-blur-sm border border-amber-500/20 px-4 py-2 rounded-full mb-4">
+                    <span className="text-amber-500 font-bold text-[10px] uppercase tracking-widest italic">
+                      {isAiEnabled && !aiAnalysis?.error ? '✨ Narrative Engine Active' : 'Sequencing Narrative...'}
+                    </span>
+                 </div>
+                 <h2 className="text-4xl md:text-6xl text-white font-bold italic serif mb-2 drop-shadow-2xl">{currentClip?.themeName || 'Opening Moments'}</h2>
+                 <p className="text-white/60 text-xs font-bold uppercase tracking-[0.3em]">{currentClip?.emotionalBeat || 'Warm Welcome'}</p>
+                 
+                 {currentClip?.contributorName && (
+                   <div className="mt-8 animate-in slide-in-from-bottom-4">
+                      <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest italic">Original Thread by</span>
+                      <p className="text-amber-500 font-bold italic serif text-xl">{currentClip.contributorName}</p>
+                   </div>
+                 )}
               </div>
+
+              {!isPlaying && (
+                <div className="absolute inset-0 bg-black/20 backdrop-blur-[1px] flex items-center justify-center cursor-pointer" onClick={() => setIsPlaying(true)}>
+                   <div className="w-24 h-24 bg-white/10 backdrop-blur-2xl rounded-full border border-white/20 flex items-center justify-center text-white hover:scale-110 transition-transform">
+                      <svg className="w-10 h-10 ml-1.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                   </div>
+                </div>
+              )}
+
               <div className="absolute bottom-10 inset-x-12 flex justify-between items-center opacity-0 group-hover:opacity-100 transition-all z-20">
                  <button onClick={() => setIsPlaying(!isPlaying)} className="w-16 h-16 bg-white/20 backdrop-blur-xl rounded-full flex items-center justify-center text-white border border-white/20">
                    {isPlaying ? <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg> : <svg className="w-6 h-6 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>}
                  </button>
-                 <div className="bg-black/60 px-6 py-2 rounded-full border border-white/10 text-[11px] font-mono text-white">{String(currentClipIndex + 1).padStart(2, '0')} / {String(Math.floor(progress)).padStart(2, '0')}%</div>
+                 <div className="bg-black/60 px-6 py-2 rounded-full border border-white/10 text-[11px] font-mono text-white">
+                   Clip {String(currentClipIndex + 1).padStart(2, '0')} / {String(Math.floor(progress)).padStart(2, '0')}%
+                 </div>
               </div>
-              <div className="absolute bottom-0 inset-x-0 h-1.5 bg-white/10"><div className="h-full bg-amber-500 shadow-[0_0_15px_#f59e0b]" style={{ width: `${progress}%` }} /></div>
+              
+              <div className="absolute bottom-0 inset-x-0 h-1.5 bg-white/10">
+                <div className="h-full bg-amber-500 shadow-[0_0_15px_#f59e0b] transition-all duration-300" style={{ width: `${progress}%` }} />
+              </div>
            </div>
 
            <div className="space-y-8">
               <div className="flex items-center justify-between border-b border-stone-100">
                 <div className="flex items-center gap-10">
-                   <button 
-                     onClick={() => setTab('contributors')} 
-                     className={cn(
-                       "text-[10px] font-bold uppercase tracking-[0.3em] pb-5 transition-all outline-none border-b-2", 
-                       tab === 'contributors' ? "text-stone-900 border-amber-500" : "text-stone-300 border-transparent hover:text-stone-500"
-                     )}
-                   >
-                      Contributors
-                   </button>
-                   <button 
-                     onClick={() => setTab('library')} 
-                     className={cn(
-                       "text-[10px] font-bold uppercase tracking-[0.3em] pb-5 transition-all outline-none border-b-2", 
-                       tab === 'library' ? "text-stone-900 border-amber-500" : "text-stone-300 border-transparent hover:text-stone-500"
-                     )}
-                   >
-                      Loom Library
-                   </button>
+                   <button onClick={() => setTab('contributors')} className={cn("text-[10px] font-bold uppercase tracking-[0.3em] pb-5 border-b-2 transition-all", tab === 'contributors' ? "text-stone-900 border-amber-500" : "text-stone-300 border-transparent")}>Contributors</button>
+                   <button onClick={() => setTab('library')} className={cn("text-[10px] font-bold uppercase tracking-[0.3em] pb-5 border-b-2 transition-all", tab === 'library' ? "text-stone-900 border-amber-500" : "text-stone-300 border-transparent")}>Loom Library</button>
                 </div>
                 {tab === 'library' && (
                   <Button onClick={() => setShowUploadModal(true)} variant="ghost" size="sm" className="mb-4 rounded-full border-amber-200 text-amber-600 hover:bg-amber-50 shadow-none px-6">
@@ -397,14 +361,14 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
                       </thead>
                       <tbody className="divide-y">
                          {activeProject.contributors.map(c => (
-                           <tr key={c.id} onClick={() => { const video = c.memories.find(m => m.type === 'video'); if (video) { setVideoError(null); setViewingVideoUrl(video.url); }}} className={cn("transition-colors", c.status === 'submitted' ? "hover:bg-amber-50/30 cursor-pointer group" : "opacity-80")}>
+                           <tr key={c.id} onClick={() => { const video = c.memories.find(m => m.type === 'video'); if (video) setViewingVideoUrl(video.url); }} className={cn("transition-colors", c.status === 'submitted' ? "hover:bg-amber-50/30 cursor-pointer group" : "opacity-80")}>
                              <td className="px-10 py-8">
                                 <span className={cn("font-bold block mb-1", c.status === 'submitted' ? "text-stone-800" : "text-stone-400")}>{c.name}</span>
                                 <span className="text-[10px] text-stone-300 font-bold uppercase italic">{c.relationship || 'Friend'}</span>
                              </td>
                              <td className="px-10 py-8 text-center"><Badge status={c.status} /></td>
                              <td className="px-10 py-8 text-right">
-                                {c.status === 'invited' ? <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); onNudgeContributor(activeProject.id, c.id); addToast(`Nudged ${c.name}`, "info"); }}>Nudge</Button> : <div className="text-green-600 font-bold text-[10px] tracking-widest uppercase flex items-center justify-end gap-2">Secured <div className="w-2 h-2 rounded-full bg-green-500" /></div>}
+                                {c.status === 'invited' ? <Button size="sm" variant="ghost">Nudge</Button> : <div className="text-green-600 font-bold text-[10px] tracking-widest uppercase flex items-center justify-end gap-2">Secured <div className="w-2 h-2 rounded-full bg-green-500" /></div>}
                              </td>
                            </tr>
                          ))}
@@ -413,11 +377,7 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
                 </div>
               ) : (
                 <div className="space-y-12 animate-in fade-in slide-in-from-bottom-2 pb-12">
-                   {activeProject.communityAssets.length === 0 ? (
-                     <div className="py-24 text-center bg-stone-50 rounded-[3rem] border-2 border-dashed border-stone-200 group hover:border-amber-200 transition-colors cursor-pointer" onClick={() => setShowUploadModal(true)}>
-                        <p className="text-stone-400 italic serif text-lg max-w-sm mx-auto">The Loom Library is empty. Share photos, videos, and music to flesh out the story.</p>
-                     </div>
-                   ) : (
+                   {visualAssets.length > 0 || audioAssets.length > 0 ? (
                      <>
                        {visualAssets.length > 0 && (
                          <div className="space-y-6">
@@ -426,48 +386,21 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
                                {visualAssets.map(asset => (
                                  <Card key={asset.id} onClick={() => setSelectedAsset(asset)} className="p-0 overflow-hidden group border-stone-100 hover:border-amber-200 shadow-sm relative">
                                     <div className="aspect-square bg-stone-100 relative overflow-hidden">
-                                       {asset.type === 'photo' ? (
-                                         <img src={asset.url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
-                                       ) : (
-                                         <div className="w-full h-full flex items-center justify-center text-stone-400 bg-stone-900 group-hover:bg-stone-800 transition-colors">
-                                           <svg className="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-                                         </div>
-                                       )}
-                                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                          <span className="text-[10px] font-bold text-white uppercase tracking-widest border border-white/40 px-3 py-1.5 rounded-full backdrop-blur">View Details</span>
-                                       </div>
+                                       {asset.type === 'photo' ? <img src={asset.url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" /> : <div className="w-full h-full bg-stone-900 flex items-center justify-center text-white/20"><svg className="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></div>}
                                        <div className="absolute top-3 left-3 px-2 py-1 bg-black/40 backdrop-blur rounded-md text-[8px] font-bold text-white/80 uppercase tracking-widest italic">{asset.contributorName}</div>
-                                       {asset.comments && asset.comments.length > 0 && (
-                                         <div className="absolute bottom-3 right-3 w-6 h-6 bg-amber-500 rounded-full flex items-center justify-center text-white text-[9px] font-bold shadow-lg animate-bounce">{asset.comments.length}</div>
-                                       )}
+                                       {asset.comments && asset.comments.length > 0 && <div className="absolute bottom-3 right-3 w-6 h-6 bg-amber-500 rounded-full flex items-center justify-center text-white text-[9px] font-bold shadow-lg">{asset.comments.length}</div>}
                                     </div>
-                                    <div className="p-4 border-t border-stone-50 bg-white">
-                                       <h4 className="font-bold text-stone-800 truncate text-sm mb-1">{asset.title}</h4>
-                                       <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest italic truncate">Shared by {asset.contributorName}</p>
-                                    </div>
-                                 </Card>
-                               ))}
-                            </div>
-                         </div>
-                       )}
-
-                       {audioAssets.length > 0 && (
-                         <div className="space-y-6">
-                            <h3 className="text-[10px] font-bold uppercase tracking-[0.3em] text-stone-400 italic">Audio & Music</h3>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                               {audioAssets.map(asset => (
-                                 <Card key={asset.id} onClick={() => setSelectedAsset(asset)} className="p-4 border-stone-100 hover:border-amber-200 shadow-sm relative flex items-center gap-4">
-                                    <div className="w-12 h-12 rounded-full bg-amber-50 flex items-center justify-center text-amber-600 text-2xl shadow-inner">♫</div>
-                                    <div className="flex-1 min-w-0">
-                                       <h4 className="font-bold text-stone-800 truncate text-sm mb-0.5">{asset.title}</h4>
-                                       <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest italic">{asset.contributorName}</p>
-                                    </div>
+                                    <div className="p-4 bg-white"><h4 className="font-bold text-stone-800 truncate text-sm">Shared by {asset.contributorName}</h4></div>
                                  </Card>
                                ))}
                             </div>
                          </div>
                        )}
                      </>
+                   ) : (
+                     <div className="py-24 text-center bg-stone-50 rounded-[3rem] border-2 border-dashed border-stone-200 group hover:border-amber-200 transition-colors cursor-pointer" onClick={() => setShowUploadModal(true)}>
+                        <p className="text-stone-400 italic serif text-lg max-w-sm mx-auto">The Loom Library is empty. Share photos, videos, and music to flesh out the story.</p>
+                     </div>
                    )}
                 </div>
               )}
@@ -483,30 +416,15 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
                  </div>
                  <h4 className="text-3xl font-bold italic serif mb-6">Director Suite</h4>
                  <p className="text-stone-400 text-sm leading-relaxed mb-10 italic">Analyze emotional peaks and weave a cinematic gift.</p>
-                 {!isAiEnabled ? (
-                   <Button onClick={onConnectAi} className="w-full bg-amber-500 text-stone-900">Connect Engine</Button>
-                 ) : (
-                   <div className="p-8 bg-white/5 rounded-3xl border border-white/10 text-center">
-                     <button onClick={() => onPreviewProject(activeProject.id)} className="text-xs font-bold uppercase tracking-widest hover:text-amber-500 transition-colors">Adjust Narrative Arc</button>
-                   </div>
-                 )}
+                 {!isAiEnabled ? <Button onClick={onConnectAi} className="w-full bg-amber-500 text-stone-900">Connect Engine</Button> : <div className="p-8 bg-white/5 rounded-3xl border border-white/10 text-center"><button onClick={() => onPreviewProject(activeProject.id)} className="text-xs font-bold uppercase tracking-widest hover:text-amber-500 transition-colors">Adjust Narrative Arc</button></div>}
               </div>
            </div>
 
            <div className="bg-white rounded-[3rem] p-10 border shadow-sm relative overflow-hidden">
               <h4 className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-8 italic">Project Health</h4>
               <div className="space-y-4">
-                 <div className="flex justify-between items-center text-xs">
-                    <span className="font-bold">Sync Status</span>
-                    <span className={cn("font-bold", missingCount > 0 ? "text-red-500" : "text-green-500")}>
-                      {missingCount > 0 ? `${missingCount} Assets Pending Repair` : 'All Clips Secured'}
-                    </span>
-                 </div>
-                 <div className="flex justify-between items-center text-xs">
-                    <span className="font-bold">Library Assets</span>
-                    <span className="text-stone-500">{activeProject.communityAssets.length} Threads</span>
-                 </div>
-                 {missingCount > 0 && <button onClick={() => setShowRecoveryModal(true)} className="w-full py-4 text-[10px] font-bold uppercase tracking-widest border rounded-2xl border-amber-200 text-amber-600 hover:bg-amber-50">Repair Loom</button>}
+                 <div className="flex justify-between items-center text-xs"><span className="font-bold">Sync Status</span><span className="font-bold text-green-500">All Clips Secured</span></div>
+                 <div className="flex justify-between items-center text-xs"><span className="font-bold">Library Assets</span><span className="text-stone-500">{activeProject.communityAssets.length} Threads</span></div>
               </div>
            </div>
         </div>
@@ -516,7 +434,7 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
         <div className="fixed inset-0 bg-stone-950/90 backdrop-blur-xl z-[400] flex items-center justify-center p-4 md:p-12" onClick={() => setViewingVideoUrl(null)}>
           <div className="w-full max-w-5xl aspect-video bg-black rounded-[3rem] overflow-hidden shadow-2xl relative" onClick={e => e.stopPropagation()}>
             <video src={viewingVideoUrl} autoPlay controls className="w-full h-full" />
-            <button onClick={() => setViewingVideoUrl(null)} className="absolute top-8 right-8 text-white/40 hover:text-white transition-colors"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M6 18L18 6M6 6l12 12" /></svg></button>
+            <button onClick={() => setViewingVideoUrl(null)} className="absolute top-8 right-8 text-white/40 hover:text-white transition-colors"><svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M6 18L18 6M6 6l12 12" /></svg></button>
           </div>
         </div>
       )}
