@@ -104,6 +104,12 @@ const App: React.FC = () => {
     addToast(`Project for ${newProject.recipientName} is live!`, 'success');
   };
 
+  const handleSeeExample = () => {
+    setActiveProjectId('1');
+    setView('organizer-dashboard');
+    addToast("Welcome to Nana Rose's tribute hub!", "info");
+  };
+
   const activeProject = projects.find(p => p.id === activeProjectId);
 
   return (
@@ -111,7 +117,12 @@ const App: React.FC = () => {
       if (v === 'landing' || v === 'organizer-dashboard') setActiveProjectId(null); 
       setView(v); 
     }}>
-      {view === 'landing' && <LandingPage onStart={() => setView('create-project')} />}
+      {view === 'landing' && (
+        <LandingPage 
+          onStart={() => setView('create-project')} 
+          onSeeExample={handleSeeExample}
+        />
+      )}
       {view === 'organizer-dashboard' && (
         <OrganizerDashboard 
           projects={projects} 

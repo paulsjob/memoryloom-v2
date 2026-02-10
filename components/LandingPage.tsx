@@ -3,9 +3,10 @@ import React from 'react';
 
 interface LandingPageProps {
   onStart: () => void;
+  onSeeExample: () => void;
 }
 
-const LandingPage: React.FC<LandingPageProps> = ({ onStart }) => {
+const LandingPage: React.FC<LandingPageProps> = ({ onStart, onSeeExample }) => {
   return (
     <div className="overflow-x-hidden">
       {/* Hero Section */}
@@ -25,7 +26,10 @@ const LandingPage: React.FC<LandingPageProps> = ({ onStart }) => {
           >
             Start a Project
           </button>
-          <button className="bg-white border border-stone-200 text-stone-800 px-8 py-4 rounded-xl text-lg font-semibold hover:bg-stone-50 transition-all w-full sm:w-auto">
+          <button 
+            onClick={onSeeExample}
+            className="bg-white border border-stone-200 text-stone-800 px-8 py-4 rounded-xl text-lg font-semibold hover:bg-stone-50 transition-all w-full sm:w-auto shadow-sm active:scale-[0.98]"
+          >
             See an Example
           </button>
         </div>
