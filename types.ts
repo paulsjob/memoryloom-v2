@@ -36,6 +36,13 @@ export interface Memory {
   createdAt: string;
 }
 
+export interface AssetComment {
+  id: string;
+  author: string;
+  text: string;
+  createdAt: string;
+}
+
 export interface CommunityAsset {
   id: string;
   contributorName: string;
@@ -45,6 +52,7 @@ export interface CommunityAsset {
   description: string;
   editorNotes?: string;
   createdAt: string;
+  comments?: AssetComment[];
 }
 
 export interface Contributor {

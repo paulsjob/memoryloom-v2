@@ -22,6 +22,7 @@ const ContributorPortal: React.FC<ContributorPortalProps> = ({ project, onFinish
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   
   // Library Asset States
+  const [contributorName, setContributorName] = useState('');
   const [assetForm, setAssetForm] = useState({ title: '', description: '', editorNotes: '', type: 'photo' as 'photo' | 'video' });
   const [assetFile, setAssetFile] = useState<File | null>(null);
   const [assetPreview, setAssetPreview] = useState<string | null>(null);
@@ -70,17 +71,18 @@ const ContributorPortal: React.FC<ContributorPortalProps> = ({ project, onFinish
   };
 
   const submitLibraryAsset = async () => {
-    if (!assetFile) return;
+    if (!assetFile || !contributorName) return;
     setIsUploading(true);
     const asset: CommunityAsset = {
       id: generateId(),
-      contributorName: "Friend",
+      contributorName: contributorName,
       type: assetForm.type,
-      url: assetPreview!, // Temporary local URL, will be replaced by persisted Blob URL in Dashboard
+      url: assetPreview!, 
       title: assetForm.title || "Untitled Memory",
       description: assetForm.description,
       editorNotes: assetForm.editorNotes,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      comments: []
     };
     onAddAsset(asset, assetFile);
     setTimeout(() => { setIsUploading(false); setStep(5); }, 1000);
@@ -89,7 +91,6 @@ const ContributorPortal: React.FC<ContributorPortalProps> = ({ project, onFinish
   const submitTestimony = async () => {
     if (!recordedBlob) return;
     setIsUploading(true);
-    // In this MVP, we treat testimony as a regular submit or can pair it with assets
     setTimeout(() => { setIsUploading(false); setStep(5); }, 1000);
   };
 
@@ -172,6 +173,11 @@ const ContributorPortal: React.FC<ContributorPortalProps> = ({ project, onFinish
                  </div>
                  
                  <div className="space-y-8">
+                    <div className="space-y-2">
+                       <label className="text-[10px] font-bold uppercase tracking-widest text-amber-600 ml-1">Your Name</label>
+                       <input type="text" value={contributorName} onChange={e => setContributorName(e.target.value)} placeholder="So everyone knows who shared this" className="w-full p-4 bg-amber-50/20 border border-amber-100 rounded-2xl outline-none focus:ring-2 focus:ring-amber-500 font-bold" />
+                    </div>
+
                     {!assetPreview ? (
                       <label className="block w-full py-20 bg-stone-50 border-2 border-dashed border-stone-200 rounded-[3rem] text-center cursor-pointer hover:bg-stone-100 transition-colors">
                          <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm text-stone-400"><svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg></div>
@@ -195,10 +201,10 @@ const ContributorPortal: React.FC<ContributorPortalProps> = ({ project, onFinish
                                <textarea value={assetForm.description} onChange={e => setAssetForm({...assetForm, description: e.target.value})} placeholder="Why is this important for the tribute?" className="w-full p-4 bg-white border rounded-2xl outline-none focus:ring-2 focus:ring-amber-500 h-24 resize-none" />
                             </div>
                             <div className="space-y-2">
-                               <label className="text-[10px] font-bold uppercase tracking-widest text-amber-500 ml-1">Notes for the MemoryLoom Editor</label>
-                               <textarea value={assetForm.editorNotes} onChange={e => setAssetForm({...assetForm, editorNotes: e.target.value})} placeholder="e.g. 'Use during the family history part' or 'Music should be quiet here'" className="w-full p-4 bg-amber-50/50 border border-amber-100 rounded-2xl outline-none focus:ring-2 focus:ring-amber-500 h-24 resize-none text-sm text-stone-600 italic" />
+                               <label className="text-[10px] font-bold uppercase tracking-widest text-amber-500 ml-1">Notes for Editor</label>
+                               <textarea value={assetForm.editorNotes} onChange={e => setAssetForm({...assetForm, editorNotes: e.target.value})} placeholder="e.g. 'Use for climax'" className="w-full p-4 bg-amber-50/50 border border-amber-100 rounded-2xl outline-none focus:ring-2 focus:ring-amber-500 h-24 resize-none text-sm text-stone-600 italic" />
                             </div>
-                            <Button onClick={submitLibraryAsset} className="w-full py-5 rounded-[2rem] shadow-xl shadow-amber-500/10" disabled={!assetForm.title || !assetForm.description}>Add to Loom Library</Button>
+                            <Button onClick={submitLibraryAsset} className="w-full py-5 rounded-[2rem] shadow-xl" disabled={!assetForm.title || !assetForm.description || !contributorName}>Add to Loom Library</Button>
                          </div>
                       </div>
                     )}
@@ -225,7 +231,7 @@ const ContributorPortal: React.FC<ContributorPortalProps> = ({ project, onFinish
         <div className="fixed inset-0 bg-stone-50/95 backdrop-blur-xl z-[200] flex flex-col items-center justify-center p-6 text-center animate-in fade-in">
           <div className="w-12 h-12 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mb-6"></div>
           <h3 className="text-xl font-bold text-stone-800 italic serif">Persisting Asset Locally...</h3>
-          <p className="text-stone-400 text-xs mt-2">Bypassing repository sync for durability.</p>
+          <p className="text-stone-400 text-xs mt-2">Securing thread to private vault.</p>
         </div>
       )}
     </div>

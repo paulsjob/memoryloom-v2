@@ -50,7 +50,7 @@ const App: React.FC = () => {
         const updatedContributors = await Promise.all(project.contributors.map(async (c) => {
           if (c.status === 'submitted') {
             const memory = c.memories.find(m => m.type === 'video');
-            if (memory) {
+            if (memory && !memory.url.includes('/videos/')) { // Only hydrate non-demo assets
               const persistedUrl = await mediaStore.getVideoUrl(memory.url);
               if (persistedUrl) {
                 return { ...c, memories: c.memories.map(m => m.id === memory.id ? { ...m, url: persistedUrl } : m) };
@@ -62,8 +62,9 @@ const App: React.FC = () => {
 
         // Hydrate Community Assets
         const updatedAssets = await Promise.all(project.communityAssets.map(async (a) => {
-          const persistedUrl = await mediaStore.getVideoUrl(a.id); // We use asset ID as key for community files
-          return persistedUrl ? { ...a, url: persistedUrl } : a;
+           if (a.url.startsWith('blob:')) return a; // Already hydrated
+           const persistedUrl = await mediaStore.getVideoUrl(a.id);
+           return persistedUrl ? { ...a, url: persistedUrl } : a;
         }));
 
         return { ...project, contributors: updatedContributors, communityAssets: updatedAssets };
@@ -75,10 +76,10 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const checkKey = async () => {
-      if (typeof window.aistudio?.hasSelectedApiKey === 'function') {
+      if (window.aistudio?.hasSelectedApiKey) {
         setHasApiKey(await window.aistudio.hasSelectedApiKey());
       } else {
-        setHasApiKey(!!process.env.API_KEY);
+        setHasApiKey(!!process.env.API_KEY && process.env.API_KEY !== 'undefined');
       }
     };
     checkKey();
@@ -128,7 +129,7 @@ const App: React.FC = () => {
           project={activeProject} 
           onFinish={() => { addToast("Memory successfully added!"); setView('landing'); }} 
           onAddAsset={(asset, blob) => {
-            mediaStore.saveVideo(asset.id, blob); // Generic blob save
+            mediaStore.saveVideo(asset.id, blob); 
             setProjects(prev => prev.map(p => p.id === activeProject.id ? { ...p, communityAssets: [...p.communityAssets, asset] } : p));
           }}
         />
