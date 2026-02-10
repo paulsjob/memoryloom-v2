@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Project, Contributor, StoryboardTheme, CommunityAsset, AssetComment } from '../types';
+import { Project, Contributor, StoryboardTheme, CommunityAsset, AssetComment, SavedSequence } from '../types';
 import { Card } from './ui/Card';
 import { Badge } from './ui/Badge';
 import { Button } from './ui/Button';
@@ -29,10 +29,12 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
   const [tab, setTab] = useState<'contributors' | 'library'>('contributors');
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [viewingVideoUrl, setViewingVideoUrl] = useState<string | null>(null);
-  const [videoError, setVideoError] = useState<string | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<CommunityAsset | null>(null);
   const [aiAnalysis, setAiAnalysis] = useState<AnalysisResult | null>(null);
+  const [isSequencing, setIsSequencing] = useState(false);
+  const [hidePlayerText, setHidePlayerText] = useState(false);
 
   // Spark Comment State
   const [sparkAuthor, setSparkAuthor] = useState('');
@@ -51,47 +53,89 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
 
   const activeProject = projects.find(p => p.id === activeProjectId);
 
+  // Persistence Logic: Run AI only if no storyboard exists
   useEffect(() => {
-    if (activeProject) {
-      const runInitialAnalysis = async () => {
-        const submittedContributors = activeProject.contributors.filter(c => c.status === 'submitted');
-        const subs = submittedContributors.map(c => ({ name: c.name, message: "A beautiful memory." }));
-        const result = await analyzeSubmissions(activeProject.title, activeProject.milestone, subs);
-        
-        setAiAnalysis(result);
-
-        if (result?.themes) {
-          // Explicitly define the return type to ensure StoryboardTheme interface consistency
-          setStoryboard(result.themes.map((t: any, i: number): StoryboardTheme => {
-            // Find a contributor matched by the AI, or just cycle through if matching fails
-            const matchingName = t.contributors[0];
-            const matchedContributor = submittedContributors.find(c => c.name === matchingName) || submittedContributors[i % submittedContributors.length];
-            
-            return {
-              id: `theme-${i}-${Date.now()}`,
-              themeName: t.themeName,
-              contributors: t.contributors,
-              suggestedTransition: t.suggestedTransition,
-              isPinned: true, 
-              order: i,
-              emotionalBeat: t.emotionalBeat || 'Narrative Segment',
-              videoUrl: matchedContributor?.memories.find(m => m.type === 'video')?.url,
-              contributorName: matchedContributor?.name
-            };
-          }));
-        }
-      };
-      runInitialAnalysis();
+    if (activeProject && !activeProject.storyboard) {
+      handleSequenceLoom();
+    } else if (activeProject?.storyboard) {
+      setStoryboard(activeProject.storyboard);
     }
-  }, [activeProjectId, projects]);
+  }, [activeProjectId]);
+
+  const handleSequenceLoom = async () => {
+    if (!activeProject) return;
+    setIsSequencing(true);
+    try {
+      const submittedContributors = activeProject.contributors.filter(c => c.status === 'submitted');
+      const subs = submittedContributors.map(c => ({ name: c.name, message: "A beautiful memory." }));
+      const result = await analyzeSubmissions(activeProject.title, activeProject.milestone, subs);
+      
+      setAiAnalysis(result);
+
+      if (result?.themes) {
+        const newStoryboard = result.themes.map((t: any, i: number): StoryboardTheme => {
+          const matchingName = t.contributors[0];
+          const matchedContributor = submittedContributors.find(c => c.name === matchingName) || submittedContributors[i % submittedContributors.length];
+          return {
+            id: `theme-${i}-${Date.now()}`,
+            themeName: t.themeName,
+            contributors: t.contributors,
+            suggestedTransition: t.suggestedTransition,
+            isPinned: true, 
+            order: i,
+            emotionalBeat: t.emotionalBeat || 'Narrative Segment',
+            videoUrl: matchedContributor?.memories.find(m => m.type === 'video')?.url,
+            contributorName: matchedContributor?.name
+          };
+        });
+
+        const newVersion: SavedSequence = {
+          id: generateId(),
+          timestamp: new Date().toISOString(),
+          storyboard: newStoryboard,
+          snapshotName: `Edit ${ (activeProject.storyboardHistory?.length || 0) + 1 }`
+        };
+
+        const updatedProjects = projects.map(p => {
+          if (p.id === activeProject.id) {
+            return { 
+              ...p, 
+              storyboard: newStoryboard, 
+              storyboardHistory: [...(p.storyboardHistory || []), newVersion] 
+            };
+          }
+          return p;
+        });
+
+        setStoryboard(newStoryboard);
+        onRefreshProjects(updatedProjects);
+        addToast("Narrative Woven!", "success");
+      }
+    } catch (err) {
+      addToast("AI Sequencing failed. Using standard flow.", "info");
+    } finally {
+      setIsSequencing(false);
+    }
+  };
+
+  const restoreVersion = (version: SavedSequence) => {
+    if (!activeProject) return;
+    const updatedProjects = projects.map(p => {
+      if (p.id === activeProject.id) {
+        return { ...p, storyboard: version.storyboard };
+      }
+      return p;
+    });
+    setStoryboard(version.storyboard);
+    onRefreshProjects(updatedProjects);
+    setShowHistoryModal(false);
+    addToast(`Restored to ${version.snapshotName}`, "success");
+  };
 
   useEffect(() => {
     if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.play().catch(() => setIsPlaying(false));
-      } else {
-        videoRef.current.pause();
-      }
+      if (isPlaying) videoRef.current.play().catch(() => setIsPlaying(false));
+      else videoRef.current.pause();
     }
   }, [isPlaying, currentClipIndex]);
 
@@ -105,28 +149,32 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
     }
   };
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const newItems = files.map(file => ({
+      file,
+      preview: URL.createObjectURL(file),
+      asset: {
+        id: generateId(),
+        contributorName: 'Organizer',
+        type: file.type.startsWith('video') ? 'video' : 'photo',
+        title: file.name.split('.')[0],
+        description: '',
+        createdAt: new Date().toISOString()
+      } as Partial<CommunityAsset>
+    }));
+    setPendingAssets(prev => [...prev, ...newItems]);
+  };
+
   const handleAddSpark = () => {
     if (!sparkAuthor || !sparkText || !selectedAsset || !activeProject) return;
-    
-    const newComment: AssetComment = {
-      id: generateId(),
-      author: sparkAuthor,
-      text: sparkText,
-      createdAt: new Date().toISOString()
-    };
-
+    const newComment: AssetComment = { id: generateId(), author: sparkAuthor, text: sparkText, createdAt: new Date().toISOString() };
     const updatedProjects = projects.map(p => {
       if (p.id === activeProject.id) {
-        return {
-          ...p,
-          communityAssets: p.communityAssets.map(a => 
-            a.id === selectedAsset.id ? { ...a, comments: [...(a.comments || []), newComment] } : a
-          )
-        };
+        return { ...p, communityAssets: p.communityAssets.map(a => a.id === selectedAsset.id ? { ...a, comments: [...(a.comments || []), newComment] } : a) };
       }
       return p;
     });
-
     onRefreshProjects(updatedProjects);
     setSparkText('');
     addToast("Memory Spark shared!", "success");
@@ -136,7 +184,6 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
   const finalizeUploads = async () => {
     if (!activeProject) return;
     setIsUploading(true);
-    
     try {
       const newAssets: CommunityAsset[] = [];
       for (const item of pendingAssets) {
@@ -144,16 +191,14 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
         await mediaStore.saveVideo(finalAsset.id, item.file);
         newAssets.push(finalAsset);
       }
-
       const updatedProjects = projects.map(p => {
         if (p.id === activeProject.id) {
           return { ...p, communityAssets: [...p.communityAssets, ...newAssets] };
         }
         return p;
       });
-
       onRefreshProjects(updatedProjects);
-      addToast(`${newAssets.length} threads added to the Loom Library`, 'success');
+      addToast(`${newAssets.length} threads added`, 'success');
       setPendingAssets([]);
       setShowUploadModal(false);
     } catch (err) {
@@ -189,33 +234,27 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
   }
 
   const currentClip = storyboard[currentClipIndex];
-  
-  // Refined missing check: ignore blob: URLs and seeded demo URLs
-  const missingCount = activeProject.contributors.filter(c => 
-    c.status === 'submitted' && 
-    c.memories[0]?.url &&
-    !c.memories[0].url.startsWith('blob:')
-  ).length === 0 ? 0 : 0; // Seeder makes them 0 effectively for now
-
   const visualAssets = activeProject.communityAssets.filter(a => a.type === 'photo' || a.type === 'video');
-  const audioAssets = activeProject.communityAssets.filter(a => a.type === 'audio');
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-12">
-      {/* Recovery Modal */}
-      {showRecoveryModal && (
-        <div className="fixed inset-0 bg-stone-900/90 backdrop-blur-xl z-[300] flex items-center justify-center p-6" onClick={() => setShowRecoveryModal(false)}>
-          <div className="bg-white max-w-lg w-full rounded-[3rem] p-12 text-center animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
-            <div className="w-20 h-20 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-8">
-              <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+      {/* Sequence History Modal */}
+      {showHistoryModal && (
+        <div className="fixed inset-0 bg-stone-900/90 backdrop-blur-xl z-[550] flex items-center justify-center p-6" onClick={() => setShowHistoryModal(false)}>
+          <div className="bg-white max-w-lg w-full rounded-[3rem] p-10 animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+            <h2 className="text-3xl font-bold serif italic mb-8">Edit History</h2>
+            <div className="space-y-4 max-h-96 overflow-y-auto pr-2">
+              {activeProject.storyboardHistory?.map((version) => (
+                <button key={version.id} onClick={() => restoreVersion(version)} className="w-full p-6 text-left border rounded-3xl hover:bg-amber-50 hover:border-amber-200 transition-all flex justify-between items-center group">
+                  <div>
+                    <span className="block font-bold text-stone-800">{version.snapshotName}</span>
+                    <span className="text-[10px] text-stone-400 font-mono">{formatDate(version.timestamp)}</span>
+                  </div>
+                  <span className="text-[10px] font-bold uppercase text-amber-600 opacity-0 group-hover:opacity-100">Restore</span>
+                </button>
+              ))}
             </div>
-            <h2 className="text-3xl font-bold serif italic mb-4">Restore Assets</h2>
-            <p className="text-stone-500 mb-8 leading-relaxed">Repair the local loom by re-selecting your shared files.</p>
-            <label className="block w-full py-6 bg-stone-50 border-2 border-dashed border-stone-200 rounded-2xl cursor-pointer hover:bg-amber-50 hover:border-amber-200 transition-all mb-4">
-              <span className="text-sm font-bold text-amber-600">Click to select files</span>
-              <input type="file" multiple accept="video/*" className="hidden" />
-            </label>
-            <button onClick={() => setShowRecoveryModal(false)} className="text-[10px] font-bold uppercase text-stone-400 tracking-widest hover:text-stone-600">Cancel</button>
+            <button onClick={() => setShowHistoryModal(false)} className="w-full mt-8 text-[10px] font-bold uppercase text-stone-400 tracking-widest">Close</button>
           </div>
         </div>
       )}
@@ -236,32 +275,68 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
                        <h3 className="text-3xl font-bold serif italic mb-2 leading-tight">{selectedAsset.title}</h3>
                        <p className="text-stone-500 italic leading-relaxed">"{selectedAsset.description}"</p>
                     </div>
-
                     <div className="space-y-6">
                        <h4 className="text-[10px] font-bold uppercase tracking-widest text-amber-600 border-b pb-2">Memory Sparks</h4>
                        <div className="space-y-4">
                           {selectedAsset.comments?.map(comment => (
                             <div key={comment.id} className="p-4 bg-white border border-stone-100 rounded-2xl shadow-sm animate-in slide-in-from-left-4">
-                               <div className="flex justify-between items-center mb-1">
-                                  <span className="text-[10px] font-bold text-stone-800">{comment.author}</span>
-                                  <span className="text-[9px] text-stone-400 font-mono">{new Date(comment.createdAt).toLocaleDateString()}</span>
-                               </div>
+                               <div className="flex justify-between items-center mb-1"><span className="text-[10px] font-bold text-stone-800">{comment.author}</span><span className="text-[9px] text-stone-400 font-mono">{new Date(comment.createdAt).toLocaleDateString()}</span></div>
                                <p className="text-xs text-stone-600 italic leading-relaxed">"{comment.text}"</p>
                             </div>
                           ))}
-                          {(!selectedAsset.comments || selectedAsset.comments.length === 0) && (
-                            <p className="text-[10px] text-stone-400 italic text-center py-4">No sparks yet. Be the first to react.</p>
-                          )}
+                          {(!selectedAsset.comments || selectedAsset.comments.length === 0) && <p className="text-[10px] text-stone-400 italic text-center py-4">No sparks yet.</p>}
                        </div>
-
                        <div className="p-6 bg-white border border-stone-200 rounded-[2rem] space-y-4">
-                          <input type="text" placeholder="Your Name" value={sparkAuthor} onChange={e => setSparkAuthor(e.target.value)} className="w-full text-xs p-3 bg-stone-50 border rounded-xl outline-none" />
-                          <textarea placeholder="Reaction (e.g. 'I remember this!')" value={sparkText} onChange={e => setSparkText(e.target.value)} className="w-full text-xs p-3 bg-stone-50 border rounded-xl outline-none resize-none h-16" />
+                          <input type="text" placeholder="Your Name" value={sparkAuthor} onChange={e => setSparkAuthor(e.target.value)} className="w-full text-xs p-3 bg-stone-50 border rounded-xl outline-none focus:ring-1 focus:ring-amber-500" />
+                          <textarea placeholder="Reaction..." value={sparkText} onChange={e => setSparkText(e.target.value)} className="w-full text-xs p-3 bg-stone-50 border rounded-xl outline-none resize-none h-16" />
                           <Button size="sm" onClick={handleAddSpark} className="w-full">Spark Connection</Button>
                        </div>
                     </div>
                  </div>
                  <Button onClick={() => setSelectedAsset(null)} variant="ghost" className="mt-8">Close Gallery</Button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* Bulk Upload Modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-stone-900/90 backdrop-blur-xl z-[450] flex items-center justify-center p-6" onClick={() => !isUploading && setShowUploadModal(false)}>
+           <div className="bg-white w-full max-w-4xl rounded-[3rem] overflow-hidden flex flex-col max-h-[90vh] shadow-2xl animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+              <div className="px-10 py-8 border-b flex justify-between items-center bg-stone-50/50">
+                 <div>
+                    <h2 className="text-3xl font-bold serif italic">Add to Loom Library</h2>
+                    <p className="text-xs text-stone-400 font-bold uppercase tracking-widest mt-1 italic">Visuals and Audio Threads</p>
+                 </div>
+                 <button onClick={() => setShowUploadModal(false)} className="p-2 hover:bg-stone-200 rounded-full transition-colors"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M6 18L18 6M6 6l12 12" /></svg></button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-10 space-y-10">
+                 {pendingAssets.length === 0 ? (
+                    <label className="block w-full py-20 bg-stone-50 border-2 border-dashed border-stone-200 rounded-[3rem] text-center cursor-pointer hover:bg-amber-50 hover:border-amber-200 transition-all">
+                       <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm text-amber-600"><svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg></div>
+                       <h3 className="text-xl font-bold italic serif mb-2">Select your media threads</h3>
+                       <input type="file" multiple accept="image/*,video/*,audio/*" className="hidden" onChange={handleFileSelect} />
+                    </label>
+                 ) : (
+                    <div className="space-y-6">
+                       {pendingAssets.map((item, idx) => (
+                          <div key={idx} className="flex items-center gap-6 p-4 bg-stone-50 rounded-2xl border">
+                             <div className="w-20 h-20 rounded-xl overflow-hidden shrink-0">
+                                {item.asset.type === 'photo' ? <img src={item.preview} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-stone-900" />}
+                             </div>
+                             <div className="flex-1">
+                                <input type="text" value={item.asset.title} onChange={e => {
+                                   const newPending = [...pendingAssets];
+                                   newPending[idx].asset.title = e.target.value;
+                                   setPendingAssets(newPending);
+                                }} className="bg-transparent font-bold border-b w-full outline-none" />
+                             </div>
+                             <button onClick={() => setPendingAssets(pendingAssets.filter((_, i) => i !== idx))} className="text-stone-300 hover:text-red-500 transition-colors"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                          </div>
+                       ))}
+                       <Button onClick={finalizeUploads} className="w-full py-4 rounded-2xl">Secure Threads</Button>
+                    </div>
+                 )}
               </div>
            </div>
         </div>
@@ -281,7 +356,7 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
                 <p className="text-stone-500 text-lg">Woven from <span className="text-amber-600 font-bold">{activeProject.contributors.filter(c => c.status === 'submitted').length + activeProject.communityAssets.length}</span> individual threads.</p>
               </div>
               <div className="flex gap-4">
-                <Button onClick={() => onPreviewProject(activeProject.id)} variant="ghost" className="rounded-2xl px-6">Produce Film</Button>
+                <Button onClick={() => onPreviewProject(activeProject.id)} variant="ghost" className="rounded-2xl px-6 border-stone-200">Produce Film</Button>
               </div>
            </div>
 
@@ -292,12 +367,16 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
                   ref={videoRef} 
                   src={currentClip.videoUrl} 
                   onTimeUpdate={onTimeUpdate} 
-                  className="w-full h-full object-cover opacity-60" 
+                  onPlay={() => { if(!hidePlayerText) setTimeout(() => setHidePlayerText(true), 1500); }}
+                  className="w-full h-full object-cover opacity-80" 
                   playsInline
                 />
               )}
               
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-12 pointer-events-none">
+              <div className={cn(
+                "absolute inset-0 flex flex-col items-center justify-center text-center p-12 pointer-events-none transition-all duration-1000",
+                hidePlayerText ? "opacity-0 translate-y-4" : "opacity-100"
+              )}>
                  <div className="bg-amber-500/10 backdrop-blur-sm border border-amber-500/20 px-4 py-2 rounded-full mb-4">
                     <span className="text-amber-500 font-bold text-[10px] uppercase tracking-widest italic">
                       {isAiEnabled && !aiAnalysis?.error ? '✨ Narrative Engine Active' : 'Sequencing Narrative...'}
@@ -307,16 +386,27 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
                  <p className="text-white/60 text-xs font-bold uppercase tracking-[0.3em]">{currentClip?.emotionalBeat || 'Warm Welcome'}</p>
                  
                  {currentClip?.contributorName && (
-                   <div className="mt-8 animate-in slide-in-from-bottom-4">
+                   <div className="mt-8">
                       <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest italic">Original Thread by</span>
                       <p className="text-amber-500 font-bold italic serif text-xl">{currentClip.contributorName}</p>
                    </div>
                  )}
               </div>
 
+              {/* Player Controls */}
+              <div className="absolute top-10 right-10 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button 
+                  onClick={() => setHidePlayerText(!hidePlayerText)} 
+                  className="bg-black/40 backdrop-blur-md border border-white/20 p-2 rounded-full text-white/60 hover:text-white"
+                  title="Toggle Editorial Text"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" /></svg>
+                </button>
+              </div>
+
               {!isPlaying && (
                 <div className="absolute inset-0 bg-black/20 backdrop-blur-[1px] flex items-center justify-center cursor-pointer" onClick={() => setIsPlaying(true)}>
-                   <div className="w-24 h-24 bg-white/10 backdrop-blur-2xl rounded-full border border-white/20 flex items-center justify-center text-white hover:scale-110 transition-transform">
+                   <div className="w-24 h-24 bg-white/10 backdrop-blur-2xl rounded-full border border-white/20 flex items-center justify-center text-white hover:scale-110 transition-transform shadow-2xl">
                       <svg className="w-10 h-10 ml-1.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
                    </div>
                 </div>
@@ -330,10 +420,7 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
                    Clip {String(currentClipIndex + 1).padStart(2, '0')} / {String(Math.floor(progress)).padStart(2, '0')}%
                  </div>
               </div>
-              
-              <div className="absolute bottom-0 inset-x-0 h-1.5 bg-white/10">
-                <div className="h-full bg-amber-500 shadow-[0_0_15px_#f59e0b] transition-all duration-300" style={{ width: `${progress}%` }} />
-              </div>
+              <div className="absolute bottom-0 inset-x-0 h-1.5 bg-white/10"><div className="h-full bg-amber-500 shadow-[0_0_15px_#f59e0b] transition-all duration-300" style={{ width: `${progress}%` }} /></div>
            </div>
 
            <div className="space-y-8">
@@ -377,26 +464,19 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
                 </div>
               ) : (
                 <div className="space-y-12 animate-in fade-in slide-in-from-bottom-2 pb-12">
-                   {visualAssets.length > 0 || audioAssets.length > 0 ? (
-                     <>
-                       {visualAssets.length > 0 && (
-                         <div className="space-y-6">
-                            <h3 className="text-[10px] font-bold uppercase tracking-[0.3em] text-stone-400 italic">Visual Assets</h3>
-                            <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                               {visualAssets.map(asset => (
-                                 <Card key={asset.id} onClick={() => setSelectedAsset(asset)} className="p-0 overflow-hidden group border-stone-100 hover:border-amber-200 shadow-sm relative">
-                                    <div className="aspect-square bg-stone-100 relative overflow-hidden">
-                                       {asset.type === 'photo' ? <img src={asset.url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" /> : <div className="w-full h-full bg-stone-900 flex items-center justify-center text-white/20"><svg className="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></div>}
-                                       <div className="absolute top-3 left-3 px-2 py-1 bg-black/40 backdrop-blur rounded-md text-[8px] font-bold text-white/80 uppercase tracking-widest italic">{asset.contributorName}</div>
-                                       {asset.comments && asset.comments.length > 0 && <div className="absolute bottom-3 right-3 w-6 h-6 bg-amber-500 rounded-full flex items-center justify-center text-white text-[9px] font-bold shadow-lg">{asset.comments.length}</div>}
-                                    </div>
-                                    <div className="p-4 bg-white"><h4 className="font-bold text-stone-800 truncate text-sm">Shared by {asset.contributorName}</h4></div>
-                                 </Card>
-                               ))}
-                            </div>
-                         </div>
-                       )}
-                     </>
+                   {visualAssets.length > 0 ? (
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+                          {visualAssets.map(asset => (
+                            <Card key={asset.id} onClick={() => setSelectedAsset(asset)} className="p-0 overflow-hidden group border-stone-100 hover:border-amber-200 shadow-sm relative">
+                              <div className="aspect-square bg-stone-100 relative overflow-hidden">
+                                  {asset.type === 'photo' ? <img src={asset.url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" /> : <div className="w-full h-full bg-stone-900 flex items-center justify-center text-white/20"><svg className="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></div>}
+                                  <div className="absolute top-3 left-3 px-2 py-1 bg-black/40 backdrop-blur rounded-md text-[8px] font-bold text-white/80 uppercase tracking-widest italic">{asset.contributorName}</div>
+                                  {asset.comments && asset.comments.length > 0 && <div className="absolute bottom-3 right-3 w-6 h-6 bg-amber-500 rounded-full flex items-center justify-center text-white text-[9px] font-bold shadow-lg">{asset.comments.length}</div>}
+                              </div>
+                              <div className="p-4 bg-white"><h4 className="font-bold text-stone-800 truncate text-sm">Shared by {asset.contributorName}</h4></div>
+                            </Card>
+                          ))}
+                      </div>
                    ) : (
                      <div className="py-24 text-center bg-stone-50 rounded-[3rem] border-2 border-dashed border-stone-200 group hover:border-amber-200 transition-colors cursor-pointer" onClick={() => setShowUploadModal(true)}>
                         <p className="text-stone-400 italic serif text-lg max-w-sm mx-auto">The Loom Library is empty. Share photos, videos, and music to flesh out the story.</p>
@@ -412,18 +492,33 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
               <div className="relative z-10">
                  <div className="flex items-center gap-3 mb-8">
                     <span className="text-[10px] font-bold uppercase tracking-[0.3em] opacity-40">Intelligence Center</span>
-                    <div className={cn("w-2 h-2 rounded-full shadow-[0_0_10px_#22c55e]", (isAiEnabled && !aiAnalysis?.error) ? "bg-green-500" : "bg-stone-700")} />
+                    <div className={cn("w-2 h-2 rounded-full", (isAiEnabled && !isSequencing) ? "bg-green-500 shadow-[0_0_10px_#22c55e]" : "bg-stone-700")} />
                  </div>
                  <h4 className="text-3xl font-bold italic serif mb-6">Director Suite</h4>
-                 <p className="text-stone-400 text-sm leading-relaxed mb-10 italic">Analyze emotional peaks and weave a cinematic gift.</p>
-                 {!isAiEnabled ? <Button onClick={onConnectAi} className="w-full bg-amber-500 text-stone-900">Connect Engine</Button> : <div className="p-8 bg-white/5 rounded-3xl border border-white/10 text-center"><button onClick={() => onPreviewProject(activeProject.id)} className="text-xs font-bold uppercase tracking-widest hover:text-amber-500 transition-colors">Adjust Narrative Arc</button></div>}
+                 <p className="text-stone-400 text-sm leading-relaxed mb-10 italic">Woven narrative based on {activeProject.contributors.filter(c => c.status === 'submitted').length} voices.</p>
+                 <div className="space-y-3">
+                   <Button 
+                    onClick={handleSequenceLoom} 
+                    className="w-full bg-amber-500 text-stone-900" 
+                    disabled={isSequencing || !isAiEnabled}
+                   >
+                     {isSequencing ? 'Resequencing...' : 'Re-Mix Loom Arc'}
+                   </Button>
+                   <Button 
+                    variant="ghost" 
+                    onClick={() => setShowHistoryModal(true)} 
+                    className="w-full bg-white/5 border-white/10 text-white"
+                   >
+                     Version History
+                   </Button>
+                 </div>
               </div>
            </div>
 
            <div className="bg-white rounded-[3rem] p-10 border shadow-sm relative overflow-hidden">
               <h4 className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-8 italic">Project Health</h4>
               <div className="space-y-4">
-                 <div className="flex justify-between items-center text-xs"><span className="font-bold">Sync Status</span><span className="font-bold text-green-500">All Clips Secured</span></div>
+                 <div className="flex justify-between items-center text-xs"><span className="font-bold">Sync Status</span><span className="font-bold text-green-500">Threads Secured</span></div>
                  <div className="flex justify-between items-center text-xs"><span className="font-bold">Library Assets</span><span className="text-stone-500">{activeProject.communityAssets.length} Threads</span></div>
               </div>
            </div>

@@ -24,6 +24,13 @@ export interface StoryboardTheme {
   contributorName?: string;
 }
 
+export interface SavedSequence {
+  id: string;
+  timestamp: string;
+  storyboard: StoryboardTheme[];
+  snapshotName: string;
+}
+
 export interface Memory {
   id: string;
   contributorId: string;
@@ -80,6 +87,7 @@ export interface Project {
   theme: 'cinematic' | 'playful' | 'minimal' | 'documentary';
   musicId?: string;
   storyboard?: StoryboardTheme[];
+  storyboardHistory?: SavedSequence[];
   aiTone?: string;
 }
 

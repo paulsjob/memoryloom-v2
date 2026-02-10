@@ -24,19 +24,26 @@ async function createMockVideoBlob(text: string, color: string): Promise<Blob> {
     
     let frame = 0;
     const interval = setInterval(() => {
-      // Draw background
-      ctx.fillStyle = color;
+      // Draw background with subtle animation
+      const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+      gradient.addColorStop(0, color);
+      gradient.addColorStop(1, '#000000');
+      ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       
       // Draw text
       ctx.fillStyle = 'white';
       ctx.font = 'italic bold 60px serif';
       ctx.textAlign = 'center';
+      ctx.shadowBlur = 20;
+      ctx.shadowColor = 'black';
       ctx.fillText(text, canvas.width / 2, canvas.height / 2);
       
       // Draw subtext
+      ctx.shadowBlur = 0;
       ctx.font = 'bold 20px sans-serif';
-      ctx.fillText(`[ MOCK THREAD #${frame} ]`, canvas.width / 2, canvas.height / 2 + 80);
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.fillText(`[ NARRATIVE THREAD ACTIVE • ${frame} ]`, canvas.width / 2, canvas.height / 2 + 80);
       
       frame++;
       if (frame > 60) { // 2 second video
