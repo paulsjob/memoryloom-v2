@@ -60,5 +60,5 @@ export function useProject(initialProjects: Project[]) {
     return newContributor;
   }, []);
 
-  return { projects, createProject, updateProjectStatus, nudgeContributor, addContributor };
+  return { projects, setProjects, createProject, updateProjectStatus, nudgeContributor, addContributor };
 }

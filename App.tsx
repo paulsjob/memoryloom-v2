@@ -10,18 +10,7 @@ import { Project, AppView, MilestoneType, Memory, Contributor } from './types';
 import { useProject } from './hooks/useProject';
 import { ToastContainer } from './components/ui/Toast';
 import { useToast } from './hooks/useToast';
-import { Button } from './components/ui/Button';
-
-// Extended window type for AI Studio helpers
-declare global {
-  interface AIStudio {
-    hasSelectedApiKey: () => Promise<boolean>;
-    openSelectKey: () => Promise<void>;
-  }
-  interface Window {
-    aistudio?: AIStudio;
-  }
-}
+import { mediaStore } from './lib/mediaStore';
 
 // Map to your local /public/videos folder
 const LOCAL_VIDEOS = [
@@ -83,8 +72,34 @@ const App: React.FC = () => {
   const [view, setView] = useState<AppView>('landing');
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [hasApiKey, setHasApiKey] = useState<boolean>(false);
-  const { projects, createProject, nudgeContributor, addContributor } = useProject(INITIAL_PROJECTS);
+  const { projects, setProjects, createProject, nudgeContributor, addContributor } = useProject(INITIAL_PROJECTS);
   const { toasts, addToast, removeToast } = useToast();
+
+  // Load persisted media on startup
+  useEffect(() => {
+    const loadPersistedMedia = async () => {
+      const updatedProjects = await Promise.all(projects.map(async (project) => {
+        const updatedContributors = await Promise.all(project.contributors.map(async (c) => {
+          if (c.status === 'submitted') {
+            const memory = c.memories.find(m => m.type === 'video');
+            if (memory) {
+              const persistedUrl = await mediaStore.getVideoUrl(memory.url);
+              if (persistedUrl) {
+                return {
+                  ...c,
+                  memories: c.memories.map(m => m.id === memory.id ? { ...m, url: persistedUrl } : m)
+                };
+              }
+            }
+          }
+          return c;
+        }));
+        return { ...project, contributors: updatedContributors };
+      }));
+      setProjects(updatedProjects);
+    };
+    loadPersistedMedia();
+  }, []);
 
   useEffect(() => {
     const checkKey = async () => {
@@ -145,6 +160,7 @@ const App: React.FC = () => {
             onNudgeContributor={nudgeContributor}
             onAddContributor={addContributor}
             addToast={addToast}
+            onRefreshProjects={(newProjects) => setProjects(newProjects)}
           />
         );
       case 'create-project':
@@ -184,7 +200,6 @@ const App: React.FC = () => {
       {renderView()}
       <ToastContainer toasts={toasts} onRemove={removeToast} />
       
-      {/* Quick Switcher (Dev only) */}
       <div className="fixed bottom-4 right-4 flex gap-2 bg-white/50 backdrop-blur border border-white/30 p-2 rounded-full shadow-lg opacity-20 hover:opacity-100 transition-opacity z-[100]">
         <button onClick={() => { setActiveProjectId(null); setView('landing'); }} className="text-[10px] font-bold px-2 py-1">Home</button>
         <button onClick={() => { setActiveProjectId(null); setView('organizer-dashboard'); }} className="text-[10px] font-bold px-2 py-1">Gallery</button>
