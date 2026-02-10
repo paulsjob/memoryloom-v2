@@ -19,7 +19,6 @@ declare global {
     openSelectKey: () => Promise<void>;
   }
   interface Window {
-    // Making aistudio optional to match potential external declarations and fix "identical modifiers" error
     aistudio?: AIStudio;
   }
 }
@@ -65,7 +64,6 @@ const App: React.FC = () => {
   const handleSelectKey = async () => {
     if (window.aistudio?.openSelectKey) {
       await window.aistudio.openSelectKey();
-      // Assume the key selection was successful to mitigate race condition
       setHasApiKey(true);
       addToast("Narrative Engine Connected!", "success");
     }
@@ -99,7 +97,10 @@ const App: React.FC = () => {
             isAiEnabled={hasApiKey}
             onConnectAi={handleSelectKey}
             onCreateProject={() => setView('create-project')}
-            onOpenProject={(id) => setActiveProjectId(id)}
+            onOpenProject={(id) => {
+              setActiveProjectId(id);
+              setView('organizer-dashboard');
+            }}
             onPreviewProject={(id) => {
               setActiveProjectId(id);
               setView('preview-video');
@@ -139,14 +140,17 @@ const App: React.FC = () => {
   };
 
   return (
-    <Layout onNavigate={setView}>
+    <Layout onNavigate={(v) => { 
+      if (v === 'landing' || v === 'organizer-dashboard') setActiveProjectId(null); 
+      setView(v); 
+    }}>
       {renderView()}
       <ToastContainer toasts={toasts} onRemove={removeToast} />
       
       {/* Quick Switcher (Dev only) */}
       <div className="fixed bottom-4 right-4 flex gap-2 bg-white/50 backdrop-blur border border-white/30 p-2 rounded-full shadow-lg opacity-20 hover:opacity-100 transition-opacity z-[100]">
-        <button onClick={() => setView('landing')} className="text-[10px] font-bold px-2 py-1">Home</button>
-        <button onClick={() => setView('organizer-dashboard')} className="text-[10px] font-bold px-2 py-1">Dash</button>
+        <button onClick={() => { setActiveProjectId(null); setView('landing'); }} className="text-[10px] font-bold px-2 py-1">Home</button>
+        <button onClick={() => { setActiveProjectId(null); setView('organizer-dashboard'); }} className="text-[10px] font-bold px-2 py-1">Gallery</button>
       </div>
     </Layout>
   );
