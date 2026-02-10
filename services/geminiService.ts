@@ -39,7 +39,6 @@ export async function analyzeSubmissions(
   milestone: string,
   submissions: Submission[]
 ): Promise<AnalysisResult | null> {
-  // Use gemini-3-pro-preview for complex narrative analysis and emotional arc construction
   const prompt = `Act as a master documentary film editor. Analyze these short written submissions for "${projectName}" (a ${milestone} celebration).
 
 Return JSON only.
@@ -52,8 +51,8 @@ Goals:
    - List the contributors whose submission fits the theme (use their exact name field)
    - Suggest a simple transition idea to move to the next theme
    - Assign an emotional beat label (example: "The Inside Joke", "The Tearjerker", "The Legacy", "The Gratitude Wave", "The Glow-Up")
-   - Mark whether this theme is the climax (true for exactly one theme, typically Act 2 or early Act 3)
-4) Provide a closingSentiment that could be used as a final line or voiceover.
+   - Mark whether this theme is the climax (true for exactly one theme)
+4) Provide a closingSentiment.
 
 Submissions:
 ${submissions
@@ -83,13 +82,7 @@ ${submissions
                   emotionalBeat: { type: Type.STRING },
                   isClimax: { type: Type.BOOLEAN },
                 },
-                required: [
-                  "themeName",
-                  "contributors",
-                  "suggestedTransition",
-                  "emotionalBeat",
-                  "isClimax",
-                ],
+                required: ["themeName", "contributors", "suggestedTransition", "emotionalBeat", "isClimax"],
               },
             },
             closingSentiment: { type: Type.STRING },
@@ -106,22 +99,22 @@ ${submissions
   }
 }
 
-export async function generateContributorPrompts(
-  milestone: string,
-  recipient: string
-): Promise<string[]> {
-  const prompt = `You are an emotionally intelligent host. Suggest 10 short, specific prompt questions that will help people record a video message for ${recipient}'s ${milestone}.
-Avoid clichés like "Happy Birthday."
-Focus on:
-- Hidden talents
-- Lessons learned from them
-- A funny "you had to be there" moment
-- A wish for their legacy
+/**
+ * Live Director Reordering
+ */
+export async function reorderStoryboard(
+  currentThemes: any[],
+  instruction: string
+): Promise<any[] | null> {
+  const prompt = `You are a film editor. Here is the current storyboard for a tribute video:
+${JSON.stringify(currentThemes, null, 2)}
 
-Return JSON only as an array of strings.`;
+The Director wants to make this change: "${instruction}"
+
+Reorder the themes or adjust their emotional beat labels to satisfy this request. 
+Return only the updated array of theme objects as JSON.`;
 
   try {
-    // Basic text task, gemini-3-flash-preview is appropriate
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
@@ -129,21 +122,40 @@ Return JSON only as an array of strings.`;
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,
-          items: { type: Type.STRING },
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              id: { type: Type.STRING },
+              themeName: { type: Type.STRING },
+              contributors: { type: Type.ARRAY, items: { type: Type.STRING } },
+              suggestedTransition: { type: Type.STRING },
+              emotionalBeat: { type: Type.STRING },
+              isClimax: { type: Type.BOOLEAN },
+            },
+            required: ["id", "themeName", "contributors", "suggestedTransition", "emotionalBeat", "isClimax"],
+          },
         },
       },
     });
 
-    return JSON.parse(response.text) as string[];
+    return JSON.parse(response.text);
   } catch (error) {
-    console.error("Gemini Prompts Error:", error);
-    return [
-      "What is a small, quiet way they've made your life better?",
-      "If you had to pick one trademark habit of theirs, what would it be?",
-      "Tell a story about a time they showed up for you when it mattered.",
-      "What is one piece of advice they gave you that you actually followed?",
-    ];
+    console.error("Gemini Reorder Error:", error);
+    return null;
   }
+}
+
+export async function generateContributorPrompts(
+  milestone: string,
+  recipient: string
+): Promise<string[]> {
+  const prompt = `You are an host. Suggest 10 prompt questions for ${recipient}'s ${milestone}. Return JSON array of strings.`;
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: prompt,
+    config: { responseMimeType: "application/json" },
+  });
+  return JSON.parse(response.text);
 }
 
 export async function generateNudgeMessage(
@@ -152,78 +164,24 @@ export async function generateNudgeMessage(
   deadline: string,
   tone: string
 ): Promise<NudgeResult> {
-  const prompt = `Write a short, warm, but effective nudge message to someone who has not submitted their video for ${recipientName}'s ${milestone} yet.
-The deadline is ${deadline}.
-The project tone is ${tone}.
-Make it feel like a gentle reminder from a friend, not a corporate alert.
-Provide two options: one that's funny/light and one that's more heartfelt.
-
-Return JSON only with keys: funny, heartfelt.`;
-
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            funny: { type: Type.STRING },
-            heartfelt: { type: Type.STRING },
-          },
-          required: ["funny", "heartfelt"],
-        },
-      },
-    });
-
-    return JSON.parse(response.text) as NudgeResult;
-  } catch (error) {
-    console.error("Gemini Nudge Error:", error);
-    return {
-      funny: `Quick nudge.  ${recipientName}'s ${milestone} project is waiting on you.  Deadline: ${deadline}.`,
-      heartfelt: `Hi.  We are almost done weaving this together for ${recipientName}.  If you can, please submit by ${deadline}.`,
-    };
-  }
+  const prompt = `Nudge message for ${recipientName}'s ${milestone}. JSON with keys: funny, heartfelt.`;
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: prompt,
+    config: { responseMimeType: "application/json" },
+  });
+  return JSON.parse(response.text);
 }
 
 export async function generateInviteCopy(
   recipientName: string,
   milestone: string
 ): Promise<InviteCopyResult> {
-  const prompt = `Write invitation copy asking someone to contribute a short video message for ${recipientName}'s ${milestone}.
-Provide three versions:
-1) WhatsApp (short)
-2) Email (detailed)
-3) Slack or Teams (professional)
-
-Return JSON only with keys: whatsapp, email, slack.`;
-
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            whatsapp: { type: Type.STRING },
-            email: { type: Type.STRING },
-            slack: { type: Type.STRING },
-          },
-          required: ["whatsapp", "email", "slack"],
-        },
-      },
-    });
-
-    return JSON.parse(response.text) as InviteCopyResult;
-  } catch (error) {
-    console.error("Gemini Invite Error:", error);
-    return {
-      whatsapp: `I’m putting together a group video for ${recipientName}'s ${milestone}.  Want to add a short message?`,
-      email: `Hi,\n\nI’m organizing a group video to celebrate ${recipientName}'s ${milestone}.  If you’re up for it, please record a short message and share it with me.\n\nThank you.`,
-      slack: `Putting together a celebration video for ${recipientName}'s ${milestone}.  If you can share a short message, that would be awesome.`,
-    };
-  }
+  const prompt = `Invite copy for ${recipientName}'s ${milestone}. JSON with keys: whatsapp, email, slack.`;
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: prompt,
+    config: { responseMimeType: "application/json" },
+  });
+  return JSON.parse(response.text);
 }
