@@ -9,9 +9,10 @@ import { cn } from '../lib/utils';
 interface VideoPreviewProps {
   project: Project;
   onBack: () => void;
+  onError?: (error: any) => void;
 }
 
-const VideoPreview: React.FC<VideoPreviewProps> = ({ project, onBack }) => {
+const VideoPreview: React.FC<VideoPreviewProps> = ({ project, onBack, onError }) => {
   const [analysis, setAnalysis] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [rendering, setRendering] = useState(false);
@@ -56,11 +57,14 @@ const VideoPreview: React.FC<VideoPreviewProps> = ({ project, onBack }) => {
             isClimax: t.isClimax
           })));
         }
-      } catch (err) { console.error(err); } finally { if (isMounted) setLoading(false); }
+      } catch (err) { 
+        console.error(err); 
+        if (onError) onError(err);
+      } finally { if (isMounted) setLoading(false); }
     }
     runAnalysis();
     return () => { isMounted = false; };
-  }, [project]);
+  }, [project, onError]);
 
   useEffect(() => {
     if (isPlaying) {
@@ -81,12 +85,17 @@ const VideoPreview: React.FC<VideoPreviewProps> = ({ project, onBack }) => {
     e.preventDefault();
     if (!directorInput.trim()) return;
     setIsChatting(true);
-    const updated = await reorderStoryboard(storyboard, directorInput);
-    if (updated) {
-      setStoryboard(updated.map((t, i) => ({ ...t, order: i, isPinned: true })));
-      setDirectorInput("");
+    try {
+      const updated = await reorderStoryboard(storyboard, directorInput);
+      if (updated) {
+        setStoryboard(updated.map((t, i) => ({ ...t, order: i, isPinned: true })));
+        setDirectorInput("");
+      }
+    } catch (err) {
+      if (onError) onError(err);
+    } finally {
+      setIsChatting(false);
     }
-    setIsChatting(false);
   };
 
   const handleFinalRender = () => {

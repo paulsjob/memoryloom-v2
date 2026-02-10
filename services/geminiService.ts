@@ -1,6 +1,5 @@
 
-import { Type } from "@google/genai";
-import { ai } from "../lib/ai";
+import { Type, GoogleGenAI } from "@google/genai";
 
 /**
  * MemoryLoom Intelligence Service
@@ -34,11 +33,17 @@ export type InviteCopyResult = {
   slack: string;
 };
 
+/**
+ * Narrative Analysis - Act 1: The Core
+ * Uses gemini-3-pro-preview for complex emotional reasoning.
+ */
 export async function analyzeSubmissions(
   projectName: string,
   milestone: string,
   submissions: Submission[]
 ): Promise<AnalysisResult | null> {
+  // Use process.env.API_KEY directly as required.
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const prompt = `Act as a master documentary film editor. Analyze these short written submissions for "${projectName}" (a ${milestone} celebration).
 
 Return JSON only.
@@ -92,10 +97,12 @@ ${submissions
       },
     });
 
+    // Extract text from response using the .text property
     return JSON.parse(response.text) as AnalysisResult;
   } catch (error) {
     console.error("Gemini Analysis Error:", error);
-    return null;
+    // Rethrow to allow component-level handling (e.g. for "Requested entity was not found")
+    throw error;
   }
 }
 
@@ -106,6 +113,7 @@ export async function reorderStoryboard(
   currentThemes: any[],
   instruction: string
 ): Promise<any[] | null> {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const prompt = `You are a film editor. Here is the current storyboard for a tribute video:
 ${JSON.stringify(currentThemes, null, 2)}
 
@@ -138,10 +146,11 @@ Return only the updated array of theme objects as JSON.`;
       },
     });
 
+    // Extract text from response using the .text property
     return JSON.parse(response.text);
   } catch (error) {
     console.error("Gemini Reorder Error:", error);
-    return null;
+    throw error;
   }
 }
 
@@ -149,13 +158,18 @@ export async function generateContributorPrompts(
   milestone: string,
   recipient: string
 ): Promise<string[]> {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const prompt = `You are an host. Suggest 10 prompt questions for ${recipient}'s ${milestone}. Return JSON array of strings.`;
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: prompt,
-    config: { responseMimeType: "application/json" },
-  });
-  return JSON.parse(response.text);
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+      config: { responseMimeType: "application/json" },
+    });
+    return JSON.parse(response.text);
+  } catch (e) {
+    return ["Tell a story about them", "What do they mean to you?", "A funny memory"];
+  }
 }
 
 export async function generateNudgeMessage(
@@ -164,24 +178,34 @@ export async function generateNudgeMessage(
   deadline: string,
   tone: string
 ): Promise<NudgeResult> {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const prompt = `Nudge message for ${recipientName}'s ${milestone}. JSON with keys: funny, heartfelt.`;
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: prompt,
-    config: { responseMimeType: "application/json" },
-  });
-  return JSON.parse(response.text);
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+      config: { responseMimeType: "application/json" },
+    });
+    return JSON.parse(response.text);
+  } catch (e) {
+    return { funny: "Hey! Don't forget!", heartfelt: "We really want you in the video." };
+  }
 }
 
 export async function generateInviteCopy(
   recipientName: string,
   milestone: string
 ): Promise<InviteCopyResult> {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const prompt = `Invite copy for ${recipientName}'s ${milestone}. JSON with keys: whatsapp, email, slack.`;
-  const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview",
-    contents: prompt,
-    config: { responseMimeType: "application/json" },
-  });
-  return JSON.parse(response.text);
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+      config: { responseMimeType: "application/json" },
+    });
+    return JSON.parse(response.text);
+  } catch (e) {
+    return { whatsapp: "Join the video!", email: "Invitation to contribute.", slack: "Team tribute project." };
+  }
 }
