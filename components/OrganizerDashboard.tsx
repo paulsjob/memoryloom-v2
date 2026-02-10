@@ -4,8 +4,8 @@ import { Project, Contributor, StoryboardTheme, CommunityAsset } from '../types'
 import { Card } from './ui/Card';
 import { Badge } from './ui/Badge';
 import { Button } from './ui/Button';
-import { generateNudgeMessage, analyzeSubmissions } from '../services/geminiService';
-import { cn, formatDate } from '../lib/utils';
+import { analyzeSubmissions, AnalysisResult } from '../services/geminiService';
+import { cn, formatDate, generateId } from '../lib/utils';
 import { mediaStore } from '../lib/mediaStore';
 
 interface OrganizerDashboardProps {
@@ -28,9 +28,15 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
 }) => {
   const [tab, setTab] = useState<'contributors' | 'library'>('contributors');
   const [showRecoveryModal, setShowRecoveryModal] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const [viewingVideoUrl, setViewingVideoUrl] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
   const [selectedAsset, setSelectedAsset] = useState<CommunityAsset | null>(null);
+  const [aiAnalysis, setAiAnalysis] = useState<AnalysisResult | null>(null);
+
+  // Batch Upload States
+  const [pendingAssets, setPendingAssets] = useState<{file: File, asset: Partial<CommunityAsset>, preview: string}[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
 
   // Video Preview States
   const [isPlaying, setIsPlaying] = useState(false);
@@ -46,7 +52,10 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
       const runInitialAnalysis = async () => {
         const submittedContributors = activeProject.contributors.filter(c => c.status === 'submitted');
         const subs = submittedContributors.map(c => ({ name: c.name, message: "A beautiful memory." }));
-        const result = await analyzeSubmissions(activeProject.title, activeProject.milestone, subs.length > 0 ? subs : [{ name: 'Family', message: 'Waiting...' }]);
+        const result = await analyzeSubmissions(activeProject.title, activeProject.milestone, subs);
+        
+        setAiAnalysis(result);
+
         if (result?.themes) {
           setStoryboard(result.themes.map((t: any, i: number) => {
             const matchedContributor = submittedContributors.find(c => t.contributors.includes(c.name));
@@ -88,7 +97,70 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
       const match = file.name.match(/nana_(\d+)/);
       if (match) await mediaStore.saveVideo(`/videos/nana_${match[1]}.mp4`, file);
     }
-    window.location.reload(); // Refresh to re-hydrate from IndexedDB
+    window.location.reload(); 
+  };
+
+  const handleLibraryFileSelection = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+    const files = Array.from(e.target.files);
+    const newPending = files.map(file => {
+      let type: 'photo' | 'video' | 'audio' = 'photo';
+      if (file.type.startsWith('video')) type = 'video';
+      else if (file.type.startsWith('audio')) type = 'audio';
+
+      return {
+        file,
+        preview: URL.createObjectURL(file),
+        asset: {
+          id: generateId(),
+          contributorName: 'Organizer',
+          type,
+          title: file.name.split('.')[0],
+          description: '',
+          editorNotes: '',
+          createdAt: new Date().toISOString()
+        } as Partial<CommunityAsset>
+      };
+    });
+    setPendingAssets(prev => [...prev, ...newPending]);
+  };
+
+  const updatePendingAsset = (index: number, updates: Partial<CommunityAsset>) => {
+    setPendingAssets(prev => prev.map((item, i) => i === index ? { ...item, asset: { ...item.asset, ...updates } } : item));
+  };
+
+  const removePendingAsset = (index: number) => {
+    setPendingAssets(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const finalizeUploads = async () => {
+    if (!activeProject) return;
+    setIsUploading(true);
+    
+    try {
+      const newAssets: CommunityAsset[] = [];
+      for (const item of pendingAssets) {
+        const finalAsset = item.asset as CommunityAsset;
+        await mediaStore.saveVideo(finalAsset.id, item.file);
+        newAssets.push(finalAsset);
+      }
+
+      const updatedProjects = projects.map(p => {
+        if (p.id === activeProject.id) {
+          return { ...p, communityAssets: [...p.communityAssets, ...newAssets] };
+        }
+        return p;
+      });
+
+      onRefreshProjects(updatedProjects);
+      addToast(`${newAssets.length} threads added to the Loom Library`, 'success');
+      setPendingAssets([]);
+      setShowUploadModal(false);
+    } catch (err) {
+      addToast("Failed to secure assets", "error");
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   if (!activeProject) {
@@ -118,6 +190,10 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
 
   const currentClip = storyboard[currentClipIndex];
   const missingCount = activeProject.contributors.filter(c => c.status === 'submitted' && c.memories[0]?.url.includes('/videos/nana_') && !c.memories[0].url.startsWith('blob:')).length;
+
+  // Bucket assets for the smart display
+  const visualAssets = activeProject.communityAssets.filter(a => a.type === 'photo' || a.type === 'video');
+  const audioAssets = activeProject.communityAssets.filter(a => a.type === 'audio');
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-12">
@@ -169,6 +245,76 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
         </div>
       )}
 
+      {/* Bulk Upload Modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-stone-900/90 backdrop-blur-xl z-[450] flex items-center justify-center p-6" onClick={() => !isUploading && setShowUploadModal(false)}>
+           <div className="bg-white w-full max-w-4xl rounded-[3rem] overflow-hidden flex flex-col max-h-[90vh] shadow-2xl animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+              <div className="px-10 py-8 border-b flex justify-between items-center bg-stone-50/50">
+                 <div>
+                    <h2 className="text-3xl font-bold serif italic">Add to Loom Library</h2>
+                    <p className="text-xs text-stone-400 font-bold uppercase tracking-widest mt-1 italic">Visuals and Audio Threads</p>
+                 </div>
+                 <button onClick={() => setShowUploadModal(false)} className="p-2 hover:bg-stone-200 rounded-full transition-colors"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M6 18L18 6M6 6l12 12" /></svg></button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-10 space-y-10">
+                 {pendingAssets.length === 0 ? (
+                    <label className="block w-full py-20 bg-stone-50 border-2 border-dashed border-stone-200 rounded-[3rem] text-center cursor-pointer hover:bg-amber-50 hover:border-amber-200 transition-all">
+                       <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm text-amber-600"><svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg></div>
+                       <h3 className="text-xl font-bold italic serif mb-2">Select your media threads</h3>
+                       <p className="text-stone-400 text-xs font-bold uppercase tracking-widest">Select multiple photos, videos, or music</p>
+                       <input type="file" multiple accept="image/*,video/*,audio/*" className="hidden" onChange={handleLibraryFileSelection} />
+                    </label>
+                 ) : (
+                    <div className="space-y-12">
+                       {pendingAssets.map((item, idx) => (
+                          <div key={idx} className="flex flex-col md:flex-row gap-10 p-8 bg-stone-50/50 border border-stone-100 rounded-[2.5rem] relative group animate-in slide-in-from-bottom-4" style={{animationDelay: `${idx * 100}ms`}}>
+                             <button onClick={() => removePendingAsset(idx)} className="absolute -top-3 -right-3 w-8 h-8 bg-white shadow-lg rounded-full flex items-center justify-center text-stone-400 hover:text-red-500 border border-stone-100 transition-colors z-10"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M6 18L18 6M6 6l12 12" /></svg></button>
+                             <div className="md:w-1/3 aspect-video md:aspect-square bg-stone-900 rounded-[1.5rem] overflow-hidden relative shadow-sm">
+                                {item.asset.type === 'photo' && <img src={item.preview} className="w-full h-full object-cover" />}
+                                {item.asset.type === 'video' && <video src={item.preview} className="w-full h-full object-cover" />}
+                                {item.asset.type === 'audio' && <div className="w-full h-full flex items-center justify-center text-white italic serif text-4xl">♫</div>}
+                                <div className="absolute top-3 left-3 px-3 py-1 bg-black/40 backdrop-blur rounded-full text-[9px] font-bold text-white uppercase tracking-widest">{item.asset.type}</div>
+                             </div>
+                             <div className="md:w-2/3 space-y-6">
+                                <div className="grid grid-cols-2 gap-4">
+                                   <div className="col-span-2">
+                                      <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2 block">Asset Title</label>
+                                      <input type="text" value={item.asset.title} onChange={e => updatePendingAsset(idx, { title: e.target.value })} className="w-full p-4 bg-white border border-stone-200 rounded-2xl outline-none focus:ring-2 focus:ring-amber-500" />
+                                   </div>
+                                   <div>
+                                      <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-2 block">Story Context</label>
+                                      <textarea value={item.asset.description} onChange={e => updatePendingAsset(idx, { description: e.target.value })} placeholder="Why is this meaningful?" className="w-full p-4 bg-white border border-stone-200 rounded-2xl outline-none focus:ring-2 focus:ring-amber-500 h-24 resize-none text-sm" />
+                                   </div>
+                                   <div>
+                                      <label className="text-[10px] font-bold uppercase tracking-widest text-amber-500 mb-2 block">Editor Instructions</label>
+                                      <textarea value={item.asset.editorNotes} onChange={e => updatePendingAsset(idx, { editorNotes: e.target.value })} placeholder="e.g. 'Use for climax'" className="w-full p-4 bg-amber-50/30 border border-amber-100 rounded-2xl outline-none focus:ring-2 focus:ring-amber-500 h-24 resize-none text-sm italic" />
+                                   </div>
+                                </div>
+                             </div>
+                          </div>
+                       ))}
+                       <label className="flex items-center justify-center py-8 border-2 border-dashed border-stone-200 rounded-[2.5rem] cursor-pointer hover:bg-stone-50 transition-colors">
+                          <span className="text-xs font-bold text-stone-400 uppercase tracking-widest">+ Add More Threads</span>
+                          <input type="file" multiple accept="image/*,video/*,audio/*" className="hidden" onChange={handleLibraryFileSelection} />
+                       </label>
+                    </div>
+                 )}
+              </div>
+
+              <div className="px-10 py-8 bg-stone-50/50 border-t flex justify-end items-center gap-6">
+                 {pendingAssets.length > 0 && (
+                   <div className="text-xs font-bold text-stone-400 mr-auto italic serif">{pendingAssets.length} threads ready to weave</div>
+                 )}
+                 <button onClick={() => setShowUploadModal(false)} className="text-[11px] font-bold uppercase tracking-widest text-stone-400 hover:text-stone-600">Cancel</button>
+                 <Button onClick={finalizeUploads} disabled={pendingAssets.length === 0 || isUploading} className="px-12 rounded-full h-14 min-w-[200px]">
+                    {isUploading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Secure to Library'}
+                 </Button>
+              </div>
+           </div>
+        </div>
+      )}
+
       <nav className="flex items-center gap-3 mb-10">
         <button onClick={() => onOpenProject(null)} className="text-[10px] font-bold uppercase tracking-widest text-stone-400 hover:text-stone-800">Tributes</button>
         <span className="text-stone-300">/</span>
@@ -197,7 +343,9 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
                    <div className="animate-in fade-in"><h2 className="text-2xl text-white font-bold italic serif mb-6">Persistent Storage Required</h2><Button onClick={() => setShowRecoveryModal(true)} size="sm">Restore Clips</Button></div>
                  ) : (
                    <>
-                    <span className="text-amber-500 font-bold text-[10px] uppercase tracking-widest mb-4 italic">{isAiEnabled ? '✨ Narrative Engine Active' : 'Sequencing...'}</span>
+                    <span className="text-amber-500 font-bold text-[10px] uppercase tracking-widest mb-4 italic">
+                      {isAiEnabled && !aiAnalysis?.error ? '✨ Narrative Engine Active' : 'Sequencing Threads...'}
+                    </span>
                     <h2 className="text-4xl md:text-6xl text-white font-bold italic serif mb-2 drop-shadow-xl">{currentClip?.themeName}</h2>
                     <p className="text-white/60 text-[10px] uppercase tracking-widest">{currentClip?.emotionalBeat}</p>
                    </>
@@ -213,15 +361,32 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
            </div>
 
            <div className="space-y-8">
-              <div className="flex items-center gap-8 border-b border-stone-100 pb-4">
-                 <button onClick={() => setTab('contributors')} className={cn("text-xs font-bold uppercase tracking-widest pb-4 transition-all relative", tab === 'contributors' ? "text-stone-900" : "text-stone-400")}>
-                    Contributors
-                    {tab === 'contributors' && <div className="absolute bottom-0 left-0 right-0 h-1 bg-amber-500" />}
-                 </button>
-                 <button onClick={() => setTab('library')} className={cn("text-xs font-bold uppercase tracking-widest pb-4 transition-all relative", tab === 'library' ? "text-stone-900" : "text-stone-400")}>
-                    Loom Library
-                    {tab === 'library' && <div className="absolute bottom-0 left-0 right-0 h-1 bg-amber-500" />}
-                 </button>
+              <div className="flex items-center justify-between border-b border-stone-100">
+                <div className="flex items-center gap-10">
+                   <button 
+                     onClick={() => setTab('contributors')} 
+                     className={cn(
+                       "text-[10px] font-bold uppercase tracking-[0.3em] pb-5 transition-all outline-none border-b-2", 
+                       tab === 'contributors' ? "text-stone-900 border-amber-500" : "text-stone-300 border-transparent hover:text-stone-500"
+                     )}
+                   >
+                      Contributors
+                   </button>
+                   <button 
+                     onClick={() => setTab('library')} 
+                     className={cn(
+                       "text-[10px] font-bold uppercase tracking-[0.3em] pb-5 transition-all outline-none border-b-2", 
+                       tab === 'library' ? "text-stone-900 border-amber-500" : "text-stone-300 border-transparent hover:text-stone-500"
+                     )}
+                   >
+                      Loom Library
+                   </button>
+                </div>
+                {tab === 'library' && (
+                  <Button onClick={() => setShowUploadModal(true)} variant="ghost" size="sm" className="mb-4 rounded-full border-amber-200 text-amber-600 hover:bg-amber-50 shadow-none px-6">
+                    + Upload Assets
+                  </Button>
+                )}
               </div>
 
               {tab === 'contributors' ? (
@@ -251,26 +416,62 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
                    </table>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-2">
+                <div className="space-y-12 animate-in fade-in slide-in-from-bottom-2 pb-12">
                    {activeProject.communityAssets.length === 0 ? (
-                     <div className="col-span-full py-20 text-center bg-stone-50 rounded-[2.5rem] border border-dashed border-stone-200">
-                        <p className="text-stone-400 italic serif text-lg">The Loom Library is empty. Share the portal link to gather B-roll, photos, and music.</p>
+                     <div className="py-24 text-center bg-stone-50 rounded-[3rem] border-2 border-dashed border-stone-200 group hover:border-amber-200 transition-colors cursor-pointer" onClick={() => setShowUploadModal(true)}>
+                        <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mx-auto mb-6 text-stone-300 group-hover:text-amber-400 transition-colors shadow-sm"><svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg></div>
+                        <p className="text-stone-400 italic serif text-lg max-w-sm mx-auto">The Loom Library is empty. Share photos, videos, and music to flesh out the story.</p>
                      </div>
                    ) : (
-                     activeProject.communityAssets.map(asset => (
-                       <Card key={asset.id} onClick={() => setSelectedAsset(asset)} className="p-0 overflow-hidden group border-stone-100 hover:border-amber-200 shadow-sm">
-                          <div className="aspect-square bg-stone-100 relative overflow-hidden">
-                             {asset.type === 'photo' ? <img src={asset.url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" /> : <div className="w-full h-full flex items-center justify-center text-stone-400"><svg className="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></div>}
-                             <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                <span className="text-[10px] font-bold text-white uppercase tracking-widest border border-white/40 px-3 py-1.5 rounded-full backdrop-blur">View Details</span>
-                             </div>
-                          </div>
-                          <div className="p-4 border-t border-stone-50">
-                             <h4 className="font-bold text-stone-800 truncate text-sm mb-1">{asset.title}</h4>
-                             <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest italic truncate">{asset.contributorName}</p>
-                          </div>
-                       </Card>
-                     ))
+                     <>
+                       {/* Visual Section */}
+                       {visualAssets.length > 0 && (
+                         <div className="space-y-6">
+                            <h3 className="text-[10px] font-bold uppercase tracking-[0.3em] text-stone-400 italic">Visual Assets</h3>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+                               {visualAssets.map(asset => (
+                                 <Card key={asset.id} onClick={() => setSelectedAsset(asset)} className="p-0 overflow-hidden group border-stone-100 hover:border-amber-200 shadow-sm relative">
+                                    <div className="aspect-square bg-stone-100 relative overflow-hidden">
+                                       {asset.type === 'photo' ? (
+                                         <img src={asset.url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" />
+                                       ) : (
+                                         <div className="w-full h-full flex items-center justify-center text-stone-400 bg-stone-900 group-hover:bg-stone-800 transition-colors">
+                                           <svg className="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                                         </div>
+                                       )}
+                                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                          <span className="text-[10px] font-bold text-white uppercase tracking-widest border border-white/40 px-3 py-1.5 rounded-full backdrop-blur">View Details</span>
+                                       </div>
+                                       <div className="absolute top-3 left-3 px-2 py-1 bg-black/40 backdrop-blur rounded-md text-[8px] font-bold text-white/80 uppercase tracking-widest">{asset.type}</div>
+                                    </div>
+                                    <div className="p-4 border-t border-stone-50 bg-white">
+                                       <h4 className="font-bold text-stone-800 truncate text-sm mb-1">{asset.title}</h4>
+                                       <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest italic truncate">{asset.contributorName}</p>
+                                    </div>
+                                 </Card>
+                               ))}
+                            </div>
+                         </div>
+                       )}
+
+                       {/* Audio Section */}
+                       {audioAssets.length > 0 && (
+                         <div className="space-y-6">
+                            <h3 className="text-[10px] font-bold uppercase tracking-[0.3em] text-stone-400 italic">Audio & Music</h3>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+                               {audioAssets.map(asset => (
+                                 <Card key={asset.id} onClick={() => setSelectedAsset(asset)} className="p-4 border-stone-100 hover:border-amber-200 shadow-sm relative flex items-center gap-4">
+                                    <div className="w-12 h-12 rounded-full bg-amber-50 flex items-center justify-center text-amber-600 text-2xl shadow-inner">♫</div>
+                                    <div className="flex-1 min-w-0">
+                                       <h4 className="font-bold text-stone-800 truncate text-sm mb-0.5">{asset.title}</h4>
+                                       <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest italic">{asset.contributorName}</p>
+                                    </div>
+                                 </Card>
+                               ))}
+                            </div>
+                         </div>
+                       )}
+                     </>
                    )}
                 </div>
               )}
@@ -282,11 +483,30 @@ const OrganizerDashboard: React.FC<OrganizerDashboardProps> = ({
               <div className="relative z-10">
                  <div className="flex items-center gap-3 mb-8">
                     <span className="text-[10px] font-bold uppercase tracking-[0.3em] opacity-40">Intelligence Center</span>
-                    <div className={cn("w-2 h-2 rounded-full shadow-[0_0_10px_#22c55e]", isAiEnabled ? "bg-green-500" : "bg-stone-700")} />
+                    <div className={cn("w-2 h-2 rounded-full shadow-[0_0_10px_#22c55e]", (isAiEnabled && !aiAnalysis?.error) ? "bg-green-500" : "bg-stone-700")} />
                  </div>
                  <h4 className="text-3xl font-bold italic serif mb-6">Director Suite</h4>
-                 <p className="text-stone-400 text-sm leading-relaxed mb-10 italic">Analyze emotional peaks and weave a cinematic gift.</p>
-                 {!isAiEnabled ? <Button onClick={onConnectAi} className="w-full bg-amber-500 text-stone-900">Connect Engine</Button> : <div className="p-8 bg-white/5 rounded-3xl border border-white/10 text-center"><button onClick={() => onPreviewProject(activeProject.id)} className="text-xs font-bold uppercase tracking-widest hover:text-amber-500 transition-colors">Adjust Narrative Arc</button></div>}
+                 
+                 {aiAnalysis?.error === 'QUOTA_EXCEEDED' ? (
+                   <div className="p-6 bg-amber-500/10 border border-amber-500/20 rounded-2xl mb-8 animate-in fade-in">
+                      <p className="text-amber-500 text-xs font-bold uppercase tracking-widest mb-2 flex items-center gap-2">
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
+                        Quota Exhausted
+                      </p>
+                      <p className="text-xs text-stone-400 leading-relaxed italic">The Narrative Engine is in 'Standard Mode' due to API limits. You can still produce films using local heuristics.</p>
+                      <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="block text-[10px] font-bold uppercase tracking-widest text-amber-500 mt-4 hover:underline">Check Quota Limits →</a>
+                   </div>
+                 ) : (
+                   <p className="text-stone-400 text-sm leading-relaxed mb-10 italic">Analyze emotional peaks and weave a cinematic gift.</p>
+                 )}
+
+                 {!isAiEnabled ? (
+                   <Button onClick={onConnectAi} className="w-full bg-amber-500 text-stone-900">Connect Engine</Button>
+                 ) : (
+                   <div className="p-8 bg-white/5 rounded-3xl border border-white/10 text-center">
+                     <button onClick={() => onPreviewProject(activeProject.id)} className="text-xs font-bold uppercase tracking-widest hover:text-amber-500 transition-colors">Adjust Narrative Arc</button>
+                   </div>
+                 )}
               </div>
            </div>
 
