@@ -20,6 +20,7 @@ export interface StoryboardTheme {
   order: number;
   emotionalBeat: string;
   isClimax?: boolean;
+  videoUrl?: string; // Added to support direct playback
 }
 
 export interface Memory {

@@ -6,7 +6,7 @@ import OrganizerDashboard from './components/OrganizerDashboard';
 import ProjectCreation from './components/ProjectCreation';
 import ContributorPortal from './components/ContributorPortal';
 import VideoPreview from './components/VideoPreview';
-import { Project, AppView, MilestoneType } from './types';
+import { Project, AppView, MilestoneType, Memory, Contributor } from './types';
 import { useProject } from './hooks/useProject';
 import { ToastContainer } from './components/ui/Toast';
 import { useToast } from './hooks/useToast';
@@ -23,6 +23,32 @@ declare global {
   }
 }
 
+// Map to your local /public/videos folder
+const LOCAL_VIDEOS = [
+  "/videos/nana_1.mp4",
+  "/videos/nana_2.mp4",
+  "/videos/nana_3.mp4",
+  "/videos/nana_4.mp4",
+  "/videos/nana_5.mp4",
+  "/videos/nana_6.mp4",
+  "/videos/nana_7.mp4",
+];
+
+const createDummyContributor = (id: string, name: string, relation: string, videoIndex: number): Contributor => ({
+  id,
+  name,
+  relationship: relation,
+  status: 'submitted',
+  memories: [{
+    id: `m-${id}`,
+    contributorId: id,
+    contributorName: name,
+    type: 'video',
+    url: LOCAL_VIDEOS[videoIndex],
+    createdAt: new Date().toISOString()
+  } as Memory]
+});
+
 const INITIAL_PROJECTS: Project[] = [
   {
     id: '1',
@@ -35,9 +61,20 @@ const INITIAL_PROJECTS: Project[] = [
     isDraft: false,
     theme: 'cinematic',
     contributors: [
-      { id: 'c1', name: 'James', relationship: 'Grandson', email: 'james@test.com', status: 'submitted', memories: [] },
-      { id: 'c2', name: 'Lily', relationship: 'Granddaughter', email: 'lily@test.com', status: 'submitted', memories: [] },
-      { id: 'c3', name: 'Uncle Bob', relationship: 'Brother', email: 'bob@test.com', status: 'invited', memories: [] },
+      createDummyContributor('c1', 'James', 'Grandson', 0),
+      createDummyContributor('c2', 'Lily', 'Granddaughter', 1),
+      createDummyContributor('c3', 'Uncle Bob', 'Brother', 2),
+      createDummyContributor('c4', 'Sarah', 'Niece', 3),
+      createDummyContributor('c5', 'Michael', 'Son', 4),
+      createDummyContributor('c6', 'Aunt May', 'Sister', 5),
+      createDummyContributor('c7', 'David', 'Old Friend', 6),
+      { 
+        id: 'c8', 
+        name: 'Linda', 
+        relationship: 'Cousin', 
+        status: 'invited', 
+        memories: [] 
+      },
     ]
   }
 ];
